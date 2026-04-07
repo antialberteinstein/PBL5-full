@@ -1,0 +1,11 @@
+fastapi
+numpy
+opencv-python
+insightface
+onnx
+onnxruntime
+pymilvus[milvus_lite]
+scikit-learn
+uvicorn
+uvicorn[standard]
+setuptools
