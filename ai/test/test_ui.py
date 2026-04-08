@@ -53,7 +53,7 @@ face_recognizer = InsightFaceDetector()
 classifier = CosineClassifier()
 
 print('Init udp camera')
-camera = HTTPCamera()
+camera = OpenCVCamera()
 
 # ==============================================================================
 #                                   SECTION: MAIN

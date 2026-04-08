@@ -55,7 +55,9 @@ class ClassificationPipeline:
             embeddings = embeddings.reshape(1, -1)
             
         processed = self.pca.transform(embeddings)
-        processed = self.scaler.transform(processed)
+
+        # Disable scaling.
+        # processed = self.scaler.transform(processed)
         
         if is_1d:
             return processed.flatten()
