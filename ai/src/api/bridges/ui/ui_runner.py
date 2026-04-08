@@ -10,27 +10,9 @@ from __future__ import annotations
 
 import logging
 import queue
-import threading
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Dict, Optional
+from typing import Any
 
-
-class UITaskType(Enum):
-    REGISTER = auto()
-    UPDATE = auto()
-    VERIFY = auto()
-
-
-@dataclass
-class UITask:
-    """A unit of work submitted by an API endpoint."""
-
-    task_type: UITaskType
-    params: Dict[str, Any] = field(default_factory=dict)
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    done_event: threading.Event = field(default_factory=threading.Event)
+from api.bridges.ui.ui_tasks import UITask, UITaskType
 
 
 # Singleton queue shared between the API thread and the main thread.
@@ -94,9 +76,10 @@ def run_ui_loop(
                     recog_pipeline,
                     classify_pipeline,
                     on_match=task.params.get("on_match"),
+                    on_frame=task.params.get("on_frame"),
                     stop_event=task.params.get("stop_event"),
                 )
-                ui.run(camera)
+                ui.run(camera, show_ui=task.params.get("show_ui", True))
 
                 task.result = {
                     "status": "completed",

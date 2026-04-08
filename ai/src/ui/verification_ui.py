@@ -25,6 +25,7 @@ class VerificationUI:
         color_success: tuple = colors.GREEN,
         color_failure: tuple = colors.RED,
         on_match=None,
+        on_frame=None,
         emit_interval_sec: float = 2.0,
         stop_event=None,
     ):
@@ -39,11 +40,12 @@ class VerificationUI:
         self.color_success = color_success
         self.color_failure = color_failure
         self.on_match = on_match
+        self.on_frame = on_frame
         self.emit_interval_sec = emit_interval_sec
         self.stop_event = stop_event
         self._last_emit = {}
 
-    def run(self, camera: Any) -> None:
+    def run(self, camera: Any, show_ui: bool = True) -> None:
         import threading
         import time
         
@@ -87,6 +89,12 @@ class VerificationUI:
             # Draw from cache
             with self._results_lock:
                 results_copy = self._latest_results.copy()
+
+            if self.on_frame is not None:
+                try:
+                    self.on_frame(frame, results_copy)
+                except Exception as e:
+                    logging.error("on_frame callback failed: %s", e)
                 
             for res in results_copy:
                 self._draw_result(frame, res)
@@ -107,20 +115,23 @@ class VerificationUI:
                             except Exception as e:
                                 logging.error("on_match callback failed: %s", e)
             
-            cv2.imshow(self.window_name, frame)
-            cv2.setWindowProperty(self.window_name, cv2.WND_PROP_TOPMOST, 1)
-            
-            key = cv2.waitKey(30) & 0xFF
-            if key == ord("q") or key == 27: 
-                self._stop_event.set()
-                break
+            if show_ui:
+                cv2.imshow(self.window_name, frame)
+                cv2.setWindowProperty(self.window_name, cv2.WND_PROP_TOPMOST, 1)
+
+                key = cv2.waitKey(30) & 0xFF
+                if key == ord("q") or key == 27:
+                    self._stop_event.set()
+                    break
             
         worker.join(timeout=1.0)
-        cv2.destroyAllWindows()
-        import sys
-        if sys.platform == "darwin":
-            # Extra wait for macOS OpenCV window cleanup
-            for _ in range(30): cv2.waitKey(1)
+        if show_ui:
+            cv2.destroyAllWindows()
+            import sys
+            if sys.platform == "darwin":
+                # Extra wait for macOS OpenCV window cleanup
+                for _ in range(30):
+                    cv2.waitKey(1)
 
     def _draw_result(self, frame, res):
         box = res["bbox"].astype(int)

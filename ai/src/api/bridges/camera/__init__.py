@@ -1,0 +1,1 @@
+"""Camera bridge for API."""
