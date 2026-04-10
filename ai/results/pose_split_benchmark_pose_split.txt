@@ -1,0 +1,15 @@
+Lab Name: Pose Split Benchmark - Pose Split Collections
+Dataset: dataset/pose-split-benchmark
+Total evaluated: 37
+Recog latency (ms): mean=185.36, p50=184.19
+Classify latency (ms): mean=2.08, p50=1.49
+Total latency (ms): mean=187.44, p50=185.81
+Skipped (read error): 0
+No face detected: 13
+
+Pose distribution:
+- Nhin thang: 6
+- Ngang len: 15
+- Cui xuong: 7
+- Quay trai: 5
+- Quay phai: 4

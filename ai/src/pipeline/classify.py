@@ -8,11 +8,12 @@ This ensures a unified, streamlined process for embedding transformations
 during validation and registration.
 """
 
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 import numpy as np
 
 from classify.preprocessing import PCAProcessor, ScalerProcessor
 from classify.cosine_classifier import CosineClassifier, UNKNOWN
+from utils.pose_utils import POSES
 
 
 class ClassificationPipeline:
@@ -77,6 +78,20 @@ class ClassificationPipeline:
 
         return self.classifier.predict_with_score(processed_emb)
 
+    def predict_use_pose(self, raw_embedding: np.ndarray, pose_name: str) -> str:
+        """Predict class from a pose-specific collection."""
+        processed_emb = self.transform(raw_embedding)
+        collection = self._pose_collection(pose_name)
+        return self.classifier.predict_from_collection(collection, processed_emb)
+
+    def predict_use_pose_with_score(
+        self, raw_embedding: np.ndarray, pose_name: str
+    ) -> Tuple[Optional[str], float]:
+        """Predict class with score from a pose-specific collection."""
+        processed_emb = self.transform(raw_embedding)
+        collection = self._pose_collection(pose_name)
+        return self.classifier.predict_with_score_from_collection(collection, processed_emb)
+
     def fit(self, class_id: str, raw_embeddings: List[np.ndarray]) -> None:
         """
         Transforms raw feature embeddings and saves them as a new class in the DB.
@@ -94,3 +109,25 @@ class ClassificationPipeline:
         
         # Classifier.fit will handle adding these to the Milvus DB
         self.classifier.fit(class_id, processed_embs)
+
+    def fit_with_pose(self, class_id: str, raw_embeddings: List[np.ndarray], pose_name: str) -> None:
+        """Fit embeddings into a pose-specific collection."""
+        if not raw_embeddings:
+            return
+
+        emb_array = np.array(raw_embeddings)
+        processed_embs = self.transform(emb_array)
+        collection = self._pose_collection(pose_name)
+        self.classifier.fit_with_collection(collection, class_id, processed_embs)
+
+    def _pose_collection(self, pose_name: str) -> str:
+        pose_map = self._pose_collections()
+        if pose_name not in pose_map:
+            raise ValueError(f"Pose '{pose_name}' is not supported for pose collections.")
+        return pose_map[pose_name]
+
+    def _pose_collections(self) -> Dict[str, str]:
+        return {
+            pose: f"cosine_face_embeddings_pose_{pose.replace(' ', '_').lower()}"
+            for pose in POSES
+        }

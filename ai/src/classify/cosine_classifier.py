@@ -10,7 +10,7 @@ Uses Milvus Lite natively for ultra-fast vectorized cosine similarity search.
 import os
 import logging
 import numpy as np
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 from pymilvus import MilvusClient, DataType
 
 
@@ -56,9 +56,13 @@ class CosineClassifier:
         
         logging.info(f"CosineClassifier initialized with database at {self.database_path}")
         
-    def _create_collection_if_not_exists(self, dim: int) -> None:
+    def _resolve_collection(self, collection_name: Optional[str]) -> str:
+        return collection_name or self.collection_name
+
+    def _create_collection_if_not_exists(self, dim: int, collection_name: Optional[str] = None) -> None:
         """Create the collection with schema if it doesn't exist."""
-        if self.client.has_collection(self.collection_name):
+        resolved_name = self._resolve_collection(collection_name)
+        if self.client.has_collection(resolved_name):
             return
             
         # Create schema
@@ -86,12 +90,37 @@ class CosineClassifier:
         
         # Create collection
         self.client.create_collection(
-            collection_name=self.collection_name,
+            collection_name=resolved_name,
             schema=schema,
             index_params=index_params,
         )
         
-        logging.info(f"Created collection '{self.collection_name}' with dimension {dim}")
+        logging.info(f"Created collection '{resolved_name}' with dimension {dim}")
+
+    def fit_with_collection(self, collection_name: str, class_id: str, embeddings: np.ndarray) -> None:
+        """Fit classifier with embeddings into a specific collection."""
+        if len(embeddings) == 0:
+            return
+        
+        dim = embeddings.shape[1] if len(embeddings.shape) > 1 else len(embeddings)
+        self._create_collection_if_not_exists(dim, collection_name)
+        
+        data = []
+        for embedding in embeddings:
+            normalized_emb = embedding / np.linalg.norm(embedding)
+            data.append({
+                "class_id": class_id,
+                "embedding": normalized_emb.tolist(),
+            })
+        
+        self.client.insert(
+            collection_name=collection_name,
+            data=data,
+        )
+        
+        logging.info(
+            f"Fitted class '{class_id}' with {len(embeddings)} new embeddings into '{collection_name}'"
+        )
 
     def fit(self, class_id: str, embeddings: np.ndarray) -> None:
         """
@@ -102,30 +131,7 @@ class CosineClassifier:
             class_id: Class identifier
             embeddings: Embeddings array (N x D)
         """
-        if len(embeddings) == 0:
-            return
-            
-        # Auto-detect dimension from inputs
-        dim = embeddings.shape[1] if len(embeddings.shape) > 1 else len(embeddings)
-        self._create_collection_if_not_exists(dim)
-        
-        # Prepare data for insertion
-        data = []
-        for embedding in embeddings:
-            # Normalize embedding for cosine similarity using IP metric
-            normalized_emb = embedding / np.linalg.norm(embedding)
-            data.append({
-                "class_id": class_id,
-                "embedding": normalized_emb.tolist(),
-            })
-        
-        # Insert data
-        self.client.insert(
-            collection_name=self.collection_name,
-            data=data,
-        )
-        
-        logging.info(f"Fitted class '{class_id}' with {len(embeddings)} new embeddings")
+        self.fit_with_collection(self.collection_name, class_id, embeddings)
     
     def predict(self, embedding: np.ndarray) -> str:
         """
@@ -141,6 +147,11 @@ class CosineClassifier:
         """
         class_id, _ = self.predict_with_score(embedding)
         return class_id if class_id is not None else UNKNOWN
+
+    def predict_from_collection(self, collection_name: str, embedding: np.ndarray) -> str:
+        """Predict class for an embedding using a specific collection."""
+        class_id, _ = self.predict_with_score_from_collection(collection_name, embedding)
+        return class_id if class_id is not None else UNKNOWN
     
     def predict_with_score(self, embedding: np.ndarray) -> Tuple[Optional[str], Optional[float]]:
         """
@@ -152,41 +163,41 @@ class CosineClassifier:
         Returns:
             Tuple of (class_id, similarity_score) or (None, None) if no match
         """
-        # Quick check to avoid searching if db hasn't been initialized
-        if not self.client.has_collection(self.collection_name):
+        return self.predict_with_score_from_collection(self.collection_name, embedding)
+
+    def predict_with_score_from_collection(
+        self, collection_name: str, embedding: np.ndarray
+    ) -> Tuple[Optional[str], Optional[float]]:
+        """Predict class with similarity score from a specific collection."""
+        if not self.client.has_collection(collection_name):
             return None, None
             
-        # Normalize query embedding identically to training ones
         normalized_emb = embedding / np.linalg.norm(embedding)
         
         try:
-            # Native Milvus search returns the most similar vectors instantly!
             results = self.client.search(
-                collection_name=self.collection_name,
+                collection_name=collection_name,
                 data=[normalized_emb.tolist()],
                 limit=1,
-                output_fields=["class_id"]
+                output_fields=["class_id"],
             )
         except Exception as e:
             logging.error(f"Search failed: {e}")
             return None, None
             
-        # Empty collection or no hits thresholded
         if not results or len(results[0]) == 0:
             return None, None
             
-        # hit definition
         hit = results[0][0]
         best_class = hit["entity"]["class_id"]
-        best_similarity = hit["distance"]  # IP measurement acts precisely as Cosine similarity here!
+        best_similarity = hit["distance"]
         
-        # Check threshold
         if best_similarity < self.verification_threshold:
             return None, best_similarity
         
         return best_class, best_similarity
         
-    def get_vectors_by_id(self, class_id: str) -> np.ndarray:
+    def get_vectors_by_id(self, class_id: str, collection_name: Optional[str] = None) -> np.ndarray:
         """
         Retrieve all vectors for a given class ID.
         
@@ -196,12 +207,13 @@ class CosineClassifier:
         Returns:
             Array of vectors (N x D), or empty array if no vectors found
         """
-        if not self.client.has_collection(self.collection_name):
+        resolved_name = self._resolve_collection(collection_name)
+        if not self.client.has_collection(resolved_name):
             return np.array([])
             
         try:
             results = self.client.query(
-                collection_name=self.collection_name,
+                collection_name=resolved_name,
                 filter=f'class_id == "{class_id}"',
                 output_fields=["embedding"],
             )
