@@ -1,0 +1,8 @@
+Lab Name: Test on LFW Dataset Pruned (with PCA + without Scaler) - CosineClassifier
+Dataset: dataset/lfw_decrease
+Total samples after filter: 1453
+Skipped (no face/read error): 3
+Recognition latency (ms): mean=234.85, p50=213.19
+Training labels: 10
+Accuracy: 0.9863
+Classification latency (ms): mean=1.70, p50=1.50
