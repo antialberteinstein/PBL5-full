@@ -166,4 +166,4 @@ class FFTAntiSpoofing:
             energy_score * self.config.weight_energy
             + peak_score * self.config.weight_peaks
             + spike_score * self.config.weight_spike
-        ) / weight_sum
+        ) / weight_sum + 0.5
