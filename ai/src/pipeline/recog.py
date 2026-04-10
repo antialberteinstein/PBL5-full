@@ -21,7 +21,7 @@ class ProcessedFace:
     embedding: np.ndarray
     confidence: float
     pose: Optional[np.ndarray]
-    pose_name: str
+    pose_name: Optional[str]
     landmarks: Optional[np.ndarray] = None
 
 class RecognitionPipeline:
@@ -29,7 +29,12 @@ class RecognitionPipeline:
     High-level orchestrator for the entire face recognition process.
     """
     
-    def __init__(self, recognizer: FaceRecognizer):
+    def __init__(
+        self,
+        recognizer: FaceRecognizer,
+        include_pose: bool = True,
+        include_landmarks: bool = True,
+    ):
         """
         Initialize the recognition pipeline.
         
@@ -37,6 +42,8 @@ class RecognitionPipeline:
             recognizer: The detector/embedder (e.g., InsightFace)
         """
         self.recognizer = recognizer
+        self.include_pose = include_pose
+        self.include_landmarks = include_landmarks
 
     def process_frame(self, frame: np.ndarray) -> List[ProcessedFace]:
         """
@@ -51,20 +58,28 @@ class RecognitionPipeline:
         # 1. Detect faces
         detections = self.recognizer.detect(frame)
         
-        # 2. Extract pose for each face
+        # 2. Extract optional metadata for each face
         from utils.pose_utils import get_pose_name
         
         results = []
         for face in detections:
-            pose_name = get_pose_name(face.pose)
+            pose_value = None
+            pose_name = None
+            if self.include_pose and getattr(face, "pose", None) is not None:
+                pose_value = face.pose
+                pose_name = get_pose_name(face.pose)
+
+            landmarks = None
+            if self.include_landmarks:
+                landmarks = getattr(face, "landmarks", None)
             
             results.append(ProcessedFace(
                 bbox=face.bbox,
                 embedding=face.embedding,
                 confidence=face.confidence,
-                pose=face.pose,
+                pose=pose_value,
                 pose_name=pose_name,
-                landmarks=getattr(face, 'landmarks', None)
+                landmarks=landmarks,
             ))
             
         return results

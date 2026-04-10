@@ -40,7 +40,6 @@ def _draw_faces(frame: cv2.Mat, faces: list) -> None:
         bbox = face.get("bbox")
         class_id = face.get("class_id")
         score = face.get("score")
-        pose_name = face.get("pose_name")
         label_id = "UNKNOWN" if class_id is None else str(class_id)
         is_unknown = "UNKNOWN" in label_id
         if isinstance(bbox, list) and len(bbox) == 4:
@@ -57,16 +56,6 @@ def _draw_faces(frame: cv2.Mat, faces: list) -> None:
                 box_color,
                 2,
             )
-            if pose_name:
-                cv2.putText(
-                    frame,
-                    str(pose_name),
-                    (x1, y2 + 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 255, 255),
-                    2,
-                )
 
 
 def _render_preview(frame, status: str) -> Optional[cv2.Mat]:

@@ -125,6 +125,7 @@ class InsightFaceDetector(FaceRecognizer):
         device: str = "cpu",
         det_threshold: float = 0.5,
         det_size: tuple = (640, 640),
+        allowed_modules: Optional[List[str]] = None,
     ):
         """Initialize InsightFace detector."""
         model_name, model_root = resolve_model_settings(
@@ -137,6 +138,7 @@ class InsightFaceDetector(FaceRecognizer):
         self.device = device
         self.det_threshold = det_threshold
         self.det_size = det_size
+        self.allowed_modules = allowed_modules
         
         self.app: Optional[FaceAnalysis] = None
         self._is_prepared = False
@@ -152,14 +154,23 @@ class InsightFaceDetector(FaceRecognizer):
             return
         
         ### 1. Initialize FaceAnalysis
+        face_args = {"name": self.model_name}
         if self.model_root:
             os.environ["INSIGHTFACE_HOME"] = self.model_root
+            face_args["root"] = self.model_root
+        if self.allowed_modules:
+            face_args["allowed_modules"] = self.allowed_modules
+
+        try:
+            self.app = FaceAnalysis(**face_args)
+        except TypeError:
+            # Fallback for InsightFace builds that do not accept allowed_modules or root.
+            face_args.pop("allowed_modules", None)
             try:
-                self.app = FaceAnalysis(name=self.model_name, root=self.model_root)
+                self.app = FaceAnalysis(**face_args)
             except TypeError:
-                self.app = FaceAnalysis(name=self.model_name)
-        else:
-            self.app = FaceAnalysis(name=self.model_name)
+                face_args.pop("root", None)
+                self.app = FaceAnalysis(**face_args)
         
         ### 2. Prepare model with configuration
         ctx_id = -1 if self.device == "cpu" else 0

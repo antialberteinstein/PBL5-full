@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.bridges.service.service_bridge import get_verification_service
-from api.routes.stream.common import decode_frame, serialize_face_result
+from api.routes.stream.common import decode_frame
 
 router = APIRouter(tags=["streaming"])
 
@@ -30,7 +30,15 @@ async def verify_stream(websocket: WebSocket) -> None:
                 continue
 
             results = service.verify(frame)
-            safe_results = [serialize_face_result(face) for face in results]
+            safe_results = [
+                {
+                    "bbox": face.get("bbox").tolist() if hasattr(face.get("bbox"), "tolist") else face.get("bbox"),
+                    "class_id": face.get("class_id"),
+                    "score": face.get("score"),
+                    "is_known": face.get("is_known"),
+                }
+                for face in results
+            ]
             payload = {
                 "status": "OK",
                 "faces": safe_results,

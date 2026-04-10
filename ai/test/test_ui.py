@@ -49,11 +49,14 @@ from pipeline.recog import RecognitionPipeline
 #                           SECTION: GLOBAL COMPONENTS
 # ==============================================================================
 
-face_recognizer = InsightFaceDetector(device='cuda')
+DEVICE = 'cpu'
+VERIFY_ALLOWED_MODULES = ["detection", "recognition"]
+reg_recognizer = InsightFaceDetector(device=DEVICE)
+ver_recognizer = InsightFaceDetector(device=DEVICE, allowed_modules=VERIFY_ALLOWED_MODULES)
 classifier = CosineClassifier()
 
 print('Init udp camera')
-camera = camera = HTTPCamera()
+camera = camera = OpenCVCamera()
 
 # ==============================================================================
 #                                   SECTION: MAIN
@@ -77,17 +80,28 @@ def main():
         "======================================================\n"
     )
     
-    face_recognizer.prepare()
+    reg_recognizer.prepare()
+    ver_recognizer.prepare()
     
     pca = PCAProcessor()
     scaler = ScalerProcessor()
-    recog_pipeline = None
+    reg_recog_pipeline = None
+    ver_recog_pipeline = None
     
     # Try to load existing models
     if pca.load() and scaler.load():
         logging.info("Preloaded saved preprocessing models successfully.")
         pipeline = ClassificationPipeline(pca, scaler, classifier)
-        recog_pipeline = RecognitionPipeline(face_recognizer)
+        reg_recog_pipeline = RecognitionPipeline(
+            reg_recognizer,
+            include_pose=True,
+            include_landmarks=True,
+        )
+        ver_recog_pipeline = RecognitionPipeline(
+            ver_recognizer,
+            include_pose=False,
+            include_landmarks=False,
+        )
         classify_pipeline = pipeline
     else:
         logging.warning("No saved preprocessing models found! Use 'tools/train_preprocessing_models.py' first.")
@@ -103,34 +117,43 @@ def main():
         choice = input("\nSelect (1-5): ").strip()
         
         if choice == '1':
-            if recog_pipeline is None:
+            if reg_recog_pipeline is None:
                 logging.error("Pipeline not initialized. Train models first.")
                 continue
             class_id = input("Class ID: ").strip()
             if class_id:
-                reg_ui = RegistrationUI(recog_pipeline, classify_pipeline)
+                reg_ui = RegistrationUI(reg_recog_pipeline, classify_pipeline)
                 reg_ui.run(class_id, camera)
                 
         elif choice == '2':
-            if recog_pipeline is None:
+            if ver_recog_pipeline is None:
                 logging.error("Pipeline not initialized. Train models first.")
                 continue
-            verify_ui = VerificationUI(recog_pipeline, classify_pipeline)
+            verify_ui = VerificationUI(ver_recog_pipeline, classify_pipeline)
             verify_ui.run(camera)
             
         elif choice == '3':
-            if recog_pipeline is None:
+            if reg_recog_pipeline is None:
                 logging.error("Pipeline not initialized. Train models first.")
                 continue
             class_id = input("Class ID to update: ").strip()
             if class_id:
-                update_ui = UpdateFaceUI(recog_pipeline, classify_pipeline)
+                update_ui = UpdateFaceUI(reg_recog_pipeline, classify_pipeline)
                 update_ui.run(class_id, camera)
                 
         elif choice == '4':
             if pca.load() and scaler.load():
                 pipeline = ClassificationPipeline(pca, scaler, classifier)
-                recog_pipeline = RecognitionPipeline(face_recognizer)
+                reg_recog_pipeline = RecognitionPipeline(
+                    reg_recognizer,
+                    include_pose=True,
+                    include_landmarks=True,
+                )
+                ver_recog_pipeline = RecognitionPipeline(
+                    ver_recognizer,
+                    include_pose=False,
+                    include_landmarks=False,
+                )
                 classify_pipeline = pipeline
                 logging.info("Pipeline reloaded successfully.")
             else:

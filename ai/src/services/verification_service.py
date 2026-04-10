@@ -5,12 +5,8 @@
 Business logic for face verification.
 """
 
-import logging
 from typing import List, Dict, Any
 import numpy as np
-from recog.face_recognition import FaceRecognizer, FaceDetection
-from pipeline.recog import RecognitionPipeline
-from utils.pose_utils import get_pose_name
 
 class VerificationService:
     """Service for verifying faces against registered embeddings."""
@@ -31,7 +27,7 @@ class VerificationService:
         Verify faces in a frame.
         
         Returns:
-            List of dicts containing bbox, class_id, score, pose_text, and is_known.
+            List of dicts containing bbox, class_id, score, and is_known.
         """
         faces = self.recog_pipeline.process_frame(frame)
         results = []
@@ -43,10 +39,7 @@ class VerificationService:
                 "bbox": face.bbox,
                 "class_id": class_id,
                 "score": score,
-                "pose": face.pose,
-                "pose_name": face.pose_name,
                 "is_known": is_known,
-                "landmarks": face.landmarks
             })
             
         return results

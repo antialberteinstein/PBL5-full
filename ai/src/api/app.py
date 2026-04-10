@@ -25,7 +25,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import CAMERA_CLIENT
 from api.bridges.camera.camera_bridge import get_camera_client
-from api.bridges.service.pipeline_bridge import get_pipelines
+from api.bridges.service.pipeline_bridge import (
+    get_registration_pipelines,
+    get_verification_pipelines,
+)
 from api.routes.local import register as register_routes
 from api.routes.local import update as update_routes
 from api.routes.local import verify as verify_routes
@@ -38,7 +41,8 @@ from api.routes.stream import verify_stream as verify_stream_routes
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Warm up pipelines on startup to reduce first-request latency.
-    get_pipelines()
+    get_registration_pipelines()
+    get_verification_pipelines()
     get_camera_client(CAMERA_CLIENT)
     yield
 
@@ -81,7 +85,10 @@ def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
 if __name__ == "__main__":
     from api.api_config import CAMERA_CLIENT
     from api.bridges.camera.camera_bridge import get_camera_client
-    from api.bridges.service.pipeline_bridge import get_pipelines
+    from api.bridges.service.pipeline_bridge import (
+        get_registration_pipelines,
+        get_verification_pipelines,
+    )
     from api.bridges.ui.ui_runner import run_ui_loop
 
     logging.basicConfig(
@@ -90,11 +97,12 @@ if __name__ == "__main__":
     )
 
     ### 1. Initialize shared resources
-    recog_pipeline, classify_pipeline = get_pipelines()
+    reg_recog_pipeline, classify_pipeline = get_registration_pipelines()
+    ver_recog_pipeline, _ = get_verification_pipelines()
     camera = get_camera_client(CAMERA_CLIENT)
 
     ### 2. Start Uvicorn API server in background thread
     start_server()
 
     ### 3. Run OpenCV UI event loop on main thread (blocks forever)
-    run_ui_loop(recog_pipeline, classify_pipeline, camera)
+    run_ui_loop(reg_recog_pipeline, ver_recog_pipeline, classify_pipeline, camera)

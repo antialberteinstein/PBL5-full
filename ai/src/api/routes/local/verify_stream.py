@@ -19,17 +19,12 @@ def _serialize_faces(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     serialized = []
     for res in results:
         bbox = res.get("bbox")
-        pose = res.get("pose")
-        landmarks = res.get("landmarks")
         serialized.append(
             {
                 "bbox": bbox.tolist() if hasattr(bbox, "tolist") else bbox,
                 "class_id": res.get("class_id"),
                 "score": res.get("score"),
-                "pose": pose.tolist() if hasattr(pose, "tolist") else pose,
-                "pose_name": res.get("pose_name"),
                 "is_known": res.get("is_known"),
-                "landmarks": landmarks.tolist() if hasattr(landmarks, "tolist") else landmarks,
             }
         )
     return serialized

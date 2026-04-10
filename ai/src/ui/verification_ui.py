@@ -8,10 +8,8 @@ Real-time UI for face verification.
 import cv2
 import logging
 import sys
-import numpy as np
 from typing import Any
 from services.verification_service import VerificationService
-import ui.debug_config as debug_config
 import ui.colors as colors
 
 class VerificationUI:
@@ -98,9 +96,6 @@ class VerificationUI:
                 
             for res in results_copy:
                 self._draw_result(frame, res)
-                
-                if debug_config.SHOW_FACE_LANDMARKS and res.get("landmarks") is not None:
-                    self._draw_landmarks(frame, res["landmarks"])
                     
                 if res["is_known"]:
                     camera.send_result(f"MATCH: {res['class_id']} ({res['score']:.2f})")
@@ -150,10 +145,4 @@ class VerificationUI:
         text = f"{res['class_id']}: {score_str}" if res["is_known"] else f"UNKNOWN: {score_str}"
         cv2.putText(frame, text, (box[0], box[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         
-        # Draw Pose
-        cv2.putText(frame, res["pose_name"], (box[0], box[3] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colors.CYAN, 2)
 
-    def _draw_landmarks(self, frame: np.ndarray, landmarks: np.ndarray) -> None:
-        for i, lmk in enumerate(landmarks.astype(int)):
-            cv2.circle(frame, tuple(lmk), 2, colors.GREEN, -1)
-            cv2.putText(frame, str(i), tuple(lmk), cv2.FONT_HERSHEY_SIMPLEX, 0.3, colors.RED, 1)
