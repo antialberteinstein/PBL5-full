@@ -49,11 +49,11 @@ from pipeline.recog import RecognitionPipeline
 #                           SECTION: GLOBAL COMPONENTS
 # ==============================================================================
 
-face_recognizer = InsightFaceDetector()
+face_recognizer = InsightFaceDetector(device='cuda')
 classifier = CosineClassifier()
 
 print('Init udp camera')
-camera = OpenCVCamera()
+camera = camera = HTTPCamera()
 
 # ==============================================================================
 #                                   SECTION: MAIN

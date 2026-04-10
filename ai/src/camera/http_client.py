@@ -1,45 +1,76 @@
 import cv2
 import numpy as np
 import urllib.request
-import socket
+import time
 
 class HTTPCamera:
-    def __init__(self):
-        # Tăng timeout lên hẳn 20 giây để ESP32 kịp "thở"
-        self.url = "http://172.20.10.3:81/stream"
+    def __init__(self, url="http://10.61.234.143:81/stream"):
+        self.url = url
         self.stream = None
         self.byte_buffer = b''
+        self.connect()
 
+    def connect(self):
+        print(f"🔄 Đang kết nối tới {self.url}...")
         try:
-            print(f"🔄 Đang thử kết nối tới {self.url}...")
-            # Vô hiệu hóa Proxy hệ thống để tránh đi đường vòng
-            proxy_support = urllib.request.ProxyHandler({})
-            opener = urllib.request.build_opener(proxy_support)
+            # Bỏ qua proxy để tăng tốc độ mạng nội bộ
+            proxy_handler = urllib.request.ProxyHandler({})
+            opener = urllib.request.build_opener(proxy_handler)
             urllib.request.install_opener(opener)
             
-            # Mở kết nối với timeout dài
-            self.stream = urllib.request.urlopen(self.url, timeout=20)
-            print("✅ KẾT NỐI THÀNH CÔNG!")
-        except socket.timeout:
-            print("❌ LỖI: Timeout - ESP32 không trả lời kịp.")
+            # Thời gian chờ ngắn để nếu đứt mạng thì reconnect ngay
+            self.stream = urllib.request.urlopen(self.url, timeout=3)
+            print("✅ KẾT NỐI CAMERA THÀNH CÔNG!")
         except Exception as e:
-            print(f"❌ LỖI KẾT NỐI: {e}")
+            print(f"❌ Lỗi kết nối: {e}")
+            self.stream = None
+            time.sleep(1)
+    
+    def send_result(self, message: str) -> None:
+        """
+        Log result message.
+        """
+        # logging.info(f"[CAMERA_RESULT] {message}")
+        pass
 
     def capture_frame(self):
-        if not self.stream: return None
+        if self.stream is None:
+            self.connect()
+            return None
+
         try:
-            # Đọc từng cụm data nhỏ để tránh tràn buffer
-            chunk = self.stream.read(1024)
-            if not chunk: return None
+            # Đọc từng khối dữ liệu lớn
+            chunk = self.stream.read(4096)
+            if not chunk:
+                self.stream = None
+                return None
+                
             self.byte_buffer += chunk
-            
-            a = self.byte_buffer.find(b'\xff\xd8')
-            b = self.byte_buffer.find(b'\xff\xd9')
+            a = self.byte_buffer.find(b'\xff\xd8') # Điểm bắt đầu ảnh JPEG
+            b = self.byte_buffer.find(b'\xff\xd9') # Điểm kết thúc ảnh JPEG
             
             if a != -1 and b != -1:
                 jpg = self.byte_buffer[a:b+2]
                 self.byte_buffer = self.byte_buffer[b+2:]
-                return cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
-        except:
-            return None
+                
+                # ==========================================
+                # BÍ QUYẾT CHỐNG LAG Ở ĐÂY:
+                # Nếu mạng WiFi lag làm dữ liệu dồn ứ > 200KB (vài frame cũ)
+                # Ta sẽ xóa sạch buffer đi để lấy frame mới nhất (Real-time)
+                # ==========================================
+                if len(self.byte_buffer) > 200000: 
+                    self.byte_buffer = b'' 
+                    
+                frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+                return frame
+                
+        except Exception as e:
+            # Nếu ESP32 rớt mạng, hàm này bắt lỗi êm ru và thử lại
+            print("⚠️ Camera rớt mạng, đang kết nối lại...")
+            self.stream = None
+            
         return None
+
+    def release(self):
+        if self.stream:
+            self.stream.close()
