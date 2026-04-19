@@ -1,0 +1,1 @@
+HTTP_CAMERA_URL = "http://10.61.234.143:81/stream"

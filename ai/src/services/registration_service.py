@@ -14,7 +14,7 @@ import cv2
 from recog.face_recognition import FaceRecognizer
 from utils.pose_utils import POSES, get_pose_name
 from utils.mask_utils import add_virtual_mask
-import services.debug_config as debug_config
+from config import services_debug_config as debug_config
 
 class RegistrationService:
     """Service for registering new faces and managing embeddings."""

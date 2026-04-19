@@ -1,0 +1,14 @@
+# Cấu hình dữ liệu
+data_dir: "dataset/anti-spoofing-rebuilt-cropped"
+save_dir: "models/anti_spoofing/effbetb0_softmax"
+
+# Cấu hình huấn luyện
+epochs: 15
+batch_size: 32
+lr: 0.001
+weight_decay: 1e-4
+val_split: 0.2
+num_workers: 4
+
+# Thiết bị (cuda, mps hoặc cpu)
+device: "mps"

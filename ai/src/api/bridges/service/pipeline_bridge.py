@@ -10,7 +10,7 @@ from pipeline.recog import RecognitionPipeline
 from pipeline.classify import ClassificationPipeline
 from classify.preprocessing import PCAProcessor, ScalerProcessor
 from classify.cosine_classifier import CosineClassifier
-from api.bridges.service.config import DEVICE, VERIFY_ALLOWED_MODULES
+from config.api_service_config import DEVICE, VERIFY_ALLOWED_MODULES
 
 
 _recog_pipeline_register: Optional[RecognitionPipeline] = None

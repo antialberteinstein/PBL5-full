@@ -11,7 +11,7 @@ def main():
     """Train PCA and Scaler models from dataset."""
     logging.info("Starting training of preprocessing models...")
     try:
-        pca, scaler = train_preprocessing_models()
+        pca, scaler = train_preprocessing_models(lfw_dataset_path='dataset/preprocessing/lfw.npz')
         logging.info("Successfully trained and saved PCA & Scaler models.")
     except Exception as e:
         logging.error(f"Training failed: {e}")

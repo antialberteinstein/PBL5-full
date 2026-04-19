@@ -11,7 +11,7 @@ import logging
 import numpy as np
 from typing import Any
 from services.registration_service import RegistrationService
-import ui.debug_config as debug_config
+from config import ui_debug_config as debug_config
 import ui.colors as colors
 
 class RegistrationUI:

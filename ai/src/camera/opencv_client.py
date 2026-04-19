@@ -12,7 +12,7 @@ import threading
 import cv2
 import numpy as np
 
-from . import config
+from config import camera_config as config
 
 
 class OpenCVCamera:

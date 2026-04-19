@@ -12,17 +12,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-# Giả sử ông có file config.py, nếu không hãy tạo hoặc thay bằng biến trực tiếp
-try:
-    from . import config
-except ImportError:
-    # Dự phòng nếu không load được config
-    class DummyConfig:
-        UDP_PORT = 7751
-        UDP_HOST = "0.0.0.0" # Nghe trên tất cả các interface
-        UDP_BUFFER_SIZE = 8192 # Phải lớn hơn CHUNK_SIZE của ESP32
-        SOCKET_TIMEOUT = 1.0
-    config = DummyConfig()
+from config import camera_config as config
 
 class UDPCamera:
     """

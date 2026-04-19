@@ -12,15 +12,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-try:
-    from . import config
-except ImportError:
-    class DummyConfig:
-        UDP_PORT = 7751
-        UDP_HOST = "0.0.0.0"
-        UDP_BUFFER_SIZE = 65535 # Nhận tối đa giới hạn của 1 gói UDP
-        SOCKET_TIMEOUT = 1.0
-    config = DummyConfig()
+from config import camera_config as config
 
 class UDPCamera:
     def __init__(self):

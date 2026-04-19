@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
-from .config import MODEL_SOURCE, LOCAL_PRETRAINED_ROOT, LOCAL_FINETUNED_ROOT, resolve_model_settings
+from config.recog_config import USE_LOCAL_MODEL, LOCAL_MODEL_DIR, LOCAL_MODEL_PACK
 
 
 # ==============================================================================
@@ -40,13 +40,6 @@ class FaceDetection:
     confidence: float
     landmarks: Optional[np.ndarray] = None
     pose: Optional[np.ndarray] = None
-
-
-# ==============================================================================
-#                           SECTION: CONFIGURATION
-# ==============================================================================
-# Global default configurations for face recognition have been moved into 
-# the InsightFaceDetector class constructor.
 
 
 # ==============================================================================
@@ -114,10 +107,12 @@ class FaceRecognizer(ABC):
 class InsightFaceDetector(FaceRecognizer):
     """
     InsightFace-based face recognition implementation.
+
+    Supports two loading modes controlled by config.py:
+        - USE_LOCAL_MODEL = False: InsightFace auto-downloads buffalo_l from internet.
+        - USE_LOCAL_MODEL = True:  Loads from LOCAL_MODEL_DIR on local machine (offline).
     
-    Uses the InsightFace library for face detection and embedding extraction.
-    This implementation provides high-quality face embeddings suitable for
-    recognition tasks.
+    The model_dir parameter overrides LOCAL_MODEL_DIR when provided explicitly.
     """
     
     def __init__(
@@ -126,19 +121,25 @@ class InsightFaceDetector(FaceRecognizer):
         det_threshold: float = 0.5,
         det_size: tuple = (640, 640),
         allowed_modules: Optional[List[str]] = None,
+        model_dir: Optional[str] = None,
     ):
         """Initialize InsightFace detector."""
-        model_name, model_root = resolve_model_settings(
-            MODEL_SOURCE,
-            LOCAL_PRETRAINED_ROOT,
-            LOCAL_FINETUNED_ROOT,
-        )
-        self.model_name = model_name
-        self.model_root = str(model_root) if model_root is not None else None
         self.device = device
         self.det_threshold = det_threshold
         self.det_size = det_size
         self.allowed_modules = allowed_modules
+
+        ### Resolve model source
+        if USE_LOCAL_MODEL:
+            # Allow caller to override the directory at runtime
+            resolved_dir = str(model_dir) if model_dir else str(LOCAL_MODEL_DIR.parent)
+            self._model_name = LOCAL_MODEL_PACK
+            self._model_root = resolved_dir
+            logging.info(f"[InsightFace] Local model: {resolved_dir}/{LOCAL_MODEL_PACK}")
+        else:
+            self._model_name = "buffalo_l"
+            self._model_root = None
+            logging.info("[InsightFace] Auto-download mode: buffalo_l")
         
         self.app: Optional[FaceAnalysis] = None
         self._is_prepared = False
@@ -153,31 +154,28 @@ class InsightFaceDetector(FaceRecognizer):
         if self._is_prepared:
             return
         
-        ### 1. Initialize FaceAnalysis
-        face_args = {"name": self.model_name}
-        if self.model_root:
-            os.environ["INSIGHTFACE_HOME"] = self.model_root
-            face_args["root"] = self.model_root
+        ### 1. Build FaceAnalysis kwargs
+        kwargs = {"name": self._model_name}
+        if self._model_root:
+            os.environ["INSIGHTFACE_HOME"] = self._model_root
+            kwargs["root"] = self._model_root
         if self.allowed_modules:
-            face_args["allowed_modules"] = self.allowed_modules
+            kwargs["allowed_modules"] = self.allowed_modules
 
+        ### 2. Initialize FaceAnalysis with graceful fallback for older builds
         try:
-            self.app = FaceAnalysis(**face_args)
+            self.app = FaceAnalysis(**kwargs)
         except TypeError:
-            # Fallback for InsightFace builds that do not accept allowed_modules or root.
-            face_args.pop("allowed_modules", None)
+            kwargs.pop("allowed_modules", None)
             try:
-                self.app = FaceAnalysis(**face_args)
+                self.app = FaceAnalysis(**kwargs)
             except TypeError:
-                face_args.pop("root", None)
-                self.app = FaceAnalysis(**face_args)
+                kwargs.pop("root", None)
+                self.app = FaceAnalysis(**kwargs)
         
-        ### 2. Prepare model with configuration
+        ### 3. Prepare model with device and detection config
         ctx_id = -1 if self.device == "cpu" else 0
-        self.app.prepare(
-            ctx_id=ctx_id,
-            det_size=self.det_size,
-        )
+        self.app.prepare(ctx_id=ctx_id, det_size=self.det_size)
         
         self._is_prepared = True
     
@@ -210,27 +208,30 @@ class InsightFaceDetector(FaceRecognizer):
         for face in faces:
             score = float(face.det_score)
             
-            # Dynamic threshold based on pose
-            # For profile faces (pitch/yaw), the detection score is naturally lower than frontal faces.
+            # Dynamic threshold: profile faces score lower than frontal
             threshold = self.det_threshold
             if hasattr(face, 'pose') and face.pose is not None:
                 pitch, yaw, roll = face.pose
                 if abs(pitch) > 15 or abs(yaw) > 20:
                     threshold = max(0.50, self.det_threshold - 0.20)
             
-            # Filter out faces with low confidence score (blurry, dark, small, etc.)
             if score < threshold:
-                # To prevent log spam, we could use a rate limiter, but for now a direct warning is fine 
-                # per user request. If a single frame has multiple bad faces it warns for each.
-                logging.warning(f"Ignored face due to low detection score: {score:.2f} < {threshold:.2f} (Base: {self.det_threshold:.2f})")
+                logging.warning(
+                    f"Ignored face: score {score:.2f} < {threshold:.2f} "
+                    f"(base: {self.det_threshold:.2f})"
+                )
                 continue
                 
             detection = FaceDetection(
                 bbox=face.bbox.astype(int),
                 embedding=face.embedding,
                 confidence=score,
-                landmarks=face.landmark_2d_106.astype(int) if hasattr(face, 'landmark_2d_106') and face.landmark_2d_106 is not None else None,
-                pose=face.pose if hasattr(face, 'pose') else None
+                landmarks=(
+                    face.landmark_2d_106.astype(int)
+                    if hasattr(face, 'landmark_2d_106') and face.landmark_2d_106 is not None
+                    else None
+                ),
+                pose=face.pose if hasattr(face, 'pose') else None,
             )
             detections.append(detection)
         
@@ -259,21 +260,7 @@ class InsightFaceDetector(FaceRecognizer):
                 "InsightFace detector not prepared. Call prepare() first."
             )
         
-        ### 1. Detect faces if bbox not provided
-        if bbox is None:
-            detections = self.detect(frame)
-            if not detections:
-                return None
-            return detections[0].embedding
-        
-        ### 2. Extract embedding from bbox
-        # Note: InsightFace doesn't support direct bbox extraction,
-        # so we detect all faces and find the one matching the bbox
         detections = self.detect(frame)
-        
         if not detections:
             return None
-        
-        # Return embedding of first detected face
-        # (In practice, bbox matching would be more sophisticated)
         return detections[0].embedding

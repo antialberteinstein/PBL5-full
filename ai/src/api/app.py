@@ -23,7 +23,7 @@ if __package__ is None:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.api_config import CAMERA_CLIENT
+from config.api_config import CAMERA_CLIENT
 from api.bridges.camera.camera_bridge import get_camera_client
 from api.bridges.service.pipeline_bridge import (
     get_registration_pipelines,

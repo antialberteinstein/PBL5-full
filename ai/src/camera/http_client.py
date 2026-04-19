@@ -3,9 +3,11 @@ import numpy as np
 import urllib.request
 import time
 
+from config.http_camera_config import HTTP_CAMERA_URL
+
 class HTTPCamera:
-    def __init__(self, url="http://10.61.234.143:81/stream"):
-        self.url = url
+    def __init__(self, url=None):
+        self.url = url if url else HTTP_CAMERA_URL
         self.stream = None
         self.byte_buffer = b''
         self.connect()

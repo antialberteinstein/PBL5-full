@@ -38,9 +38,9 @@ class PCAProcessor:
     def __init__(
         self,
         n_components: int = 128,
-        models_dir: str = "models",
-        pca_model_path: str = "models/pca_model.joblib",
-        pca_vectors_path: str = "models/pca_vectors.bin",
+        models_dir: str = "models/preprocessing/",
+        pca_model_path: str = "models/preprocessing/pca_model.joblib",
+        pca_vectors_path: str = "models/preprocessing/pca_vectors.bin",
         finetune_min_batch_size: int = 36,
     ):
         """
@@ -228,9 +228,9 @@ class ScalerProcessor:
     
     def __init__(
         self,
-        models_dir: str = "models",
-        scaler_model_path: str = "models/scaler_model.joblib",
-        scaler_vectors_path: str = "models/scaler_vectors.bin",
+        models_dir: str = "models/preprocessing/",
+        scaler_model_path: str = "models/preprocessing/scaler_model.joblib",
+        scaler_vectors_path: str = "models/preprocessing/scaler_vectors.bin",
         finetune_min_batch_size: int = 36,
         pca_n_components: int = 128,
     ):
