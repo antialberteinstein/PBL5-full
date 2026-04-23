@@ -7,6 +7,7 @@ import com.tam.pbl5.service.TeacherClassService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -85,6 +86,18 @@ public class TeacherClassController {
         try {
             String message = teacherClassService.rejectStudent(request, token);
             return ResponseEntity.ok(message);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+    @PostMapping("/{classId}/import-students")
+    public ResponseEntity<?> importStudentsFromExcel(
+            @PathVariable Integer classId,
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "Authorization", required = false) String token) {
+        try {
+            String result = teacherClassService.importStudentsFromExcel(classId, file, token);
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

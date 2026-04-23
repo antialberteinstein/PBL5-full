@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import api from "../services/api.js";
+import api, { studentAPI } from "../services/api.js"; // ✨ SỬA Ở ĐÂY: Import thêm studentAPI
 
 const Login = () => {
   const [username, setUsername] = useState("");
@@ -14,30 +14,48 @@ const Login = () => {
     try {
       const response = await api.post("/auth/login", { username, password });
 
-      // 1. Lấy token và lưu vào với tên là "token" (không dùng jwt_token nữa)
+      // 1. Lấy token và lưu vào bộ nhớ
       const token = response.data.token || response.data.accessToken;
       localStorage.setItem("token", token);
-
-      // Lưu username để dùng cho các tác vụ của sinh viên
       localStorage.setItem("username", username);
 
-      // 2. Lấy Role từ Backend trả về
-      // Dùng console.log để Khang tự F12 lên xem Backend trả về tên biến là gì (role, roles, hay authority)
       console.log("Dữ liệu Backend trả về:", response.data);
 
-      // Giả sử Backend trả về biến 'role' (VD: "ROLE_TEACHER")
+      // 2. Xử lý Role
       let userRole = response.data.role || response.data.authority || "STUDENT";
-
-      // 3. Cắt bỏ chữ "ROLE_" để đồng bộ với chữ "TEACHER" trong Dashboard
       if (userRole.startsWith("ROLE_")) {
         userRole = userRole.replace("ROLE_", "");
       }
 
-      // 4. Lưu Role vào bộ nhớ
-      localStorage.setItem("role", userRole.toUpperCase());
+      const roleFinal = userRole.toUpperCase();
+      localStorage.setItem("role", roleFinal);
 
       alert("Đăng nhập thành công!");
-      navigate("/dashboard");
+
+      // ✨ SỬA Ở ĐÂY: 3. ĐIỀU HƯỚNG THÔNG MINH DỰA TRÊN QUYỀN VÀ TRẠNG THÁI KHUÔN MẶT
+      if (roleFinal === "ADMIN") {
+        // Admin bay thẳng vào trang quản trị
+        navigate("/admin");
+      } else if (roleFinal === "TEACHER") {
+        // Giáo viên bay thẳng vào bảng điều khiển lớp học
+        navigate("/dashboard");
+      } else if (roleFinal === "STUDENT") {
+        // Sinh viên: Phải kiểm tra xem đã đăng ký khuôn mặt chưa
+        try {
+          const profileRes = await studentAPI.getCurrentStudent();
+          const isFaceRegistered = profileRes.data?.faceRegistered;
+
+          if (isFaceRegistered) {
+            navigate("/dashboard"); // Đã đăng ký -> Cho vào lớp học
+          } else {
+            navigate("/register-face"); // Chưa đăng ký -> Bắt đi đăng ký khuôn mặt
+          }
+        } catch (error) {
+          console.error("Lỗi kiểm tra khuôn mặt:", error);
+          // Nếu API lỗi (chưa lấy được thông tin), cứ đẩy tạm qua trang đăng ký cho an toàn
+          navigate("/register-face");
+        }
+      }
     } catch (err) {
       setError(err.response?.data || "Sai tài khoản hoặc mật khẩu!");
     }
