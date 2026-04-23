@@ -83,7 +83,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
 
 
 if __name__ == "__main__":
-    from api.api_config import CAMERA_CLIENT
+    from config.api_config import CAMERA_CLIENT
     from api.bridges.camera.camera_bridge import get_camera_client
     from api.bridges.service.pipeline_bridge import (
         get_registration_pipelines,

@@ -20,12 +20,10 @@ except ImportError:  # pragma: no cover
 LABEL_MAP = {
 	"3D_paper_mask": "3D_paper_mask",
 	"Cutout_attacks": "Cutout_attack",
-	"Latex_mask": "Latex_mask",
 	"Replay_display_attacks/Screen": "Replay_display_attacks",
 	"Replay_display_attacks/Real": "Real",
 	"Replay_mobile_attacks": "Replay_mobile_attacks",
 	"Selfies": "Selfies",
-	"Silicone_mask": "Silicone_mask",
 	"Textile 3D Face Mask Attack Sample": "Textile_3D_Face_Mask_Attack",
 	"Wrapped_3D_paper_mask": "Wrapped_3D_paper_mask",
 }

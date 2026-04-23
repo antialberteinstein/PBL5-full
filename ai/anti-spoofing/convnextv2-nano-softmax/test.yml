@@ -1,0 +1,16 @@
+# Test pipeline config
+
+# Camera
+camera_index: 0
+
+# InsightFace
+insightface_model: buffalo_l
+det_threshold: 0.5
+det_size: [640, 640]
+
+# Checkpoint path
+ckpt_path: models/anti_spoofing/convnextv2_nano_softmax/convnextv2_nano_softmax_best.pt
+
+# Inference Device
+# Để trống, comment lại, hoặc ghi rõ "cpu", "cuda", "mps"
+# device: mps

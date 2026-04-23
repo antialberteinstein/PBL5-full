@@ -29,6 +29,7 @@ DET_THRESHOLD = 0.5
 DEVICE = "cpu"  # use "cuda" if available
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+SKIP_LABELS = {"Latex_mask", "Silicone_mask"}
 
 
 def iter_images(root: Path) -> Iterable[Path]:
@@ -74,6 +75,11 @@ def main() -> None:
 	skipped = 0
 	for img_path in iter_images(INPUT_DIR):
 		rel = img_path.relative_to(INPUT_DIR)
+		
+		# Bỏ qua các label không mong muốn
+		if rel.parts[0] in SKIP_LABELS:
+			continue
+
 		out_path = OUTPUT_DIR / rel
 		out_path.parent.mkdir(parents=True, exist_ok=True)
 

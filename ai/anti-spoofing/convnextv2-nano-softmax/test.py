@@ -15,7 +15,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 # Dùng import trực tiếp do cùng nằm chung thư mục
-from model import EfficientNetB0Classifier
+from model import ConvNextV2NanoClassifier
 from config import FACE_CROP_SIZE, FACE_PAD_RATIO
 
 def preprocess_face(face_bgr: np.ndarray) -> torch.Tensor:
@@ -81,7 +81,7 @@ def draw_label(frame: np.ndarray, bbox: np.ndarray, label: str, color: tuple[int
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Test EfficientNet-B0 Softmax pipeline")
-    parser.add_argument("--config_path", default="effbetb0-softmax/test.yml", help="Path to config file")
+    parser.add_argument("--config_path", default="convnextv2-nano-softmax/test.yml", help="Path to config file")
     args = parser.parse_args()
 
     config_path = Path(args.config_path)
@@ -93,7 +93,7 @@ def main() -> None:
     insightface_model = config.get("insightface_model", "buffalo_l")
     det_threshold = float(config.get("det_threshold", 0.5))
     det_size = tuple(config.get("det_size", [640, 640]))
-    ckpt_path = Path(config.get("ckpt_path", "models/anti_spoofing/effbetb0_softmax/efficientnet_b0_softmax_best.pt"))
+    ckpt_path = Path(config.get("ckpt_path", "models/anti_spoofing/convnextv2_nano_softmax/convnextv2_nano_softmax_best.pt"))
 
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
@@ -116,7 +116,7 @@ def main() -> None:
     num_classes = len(classes)
     
     # Khởi tạo mô hình và tải trọng số
-    model = EfficientNetB0Classifier(num_classes=num_classes, pretrained=False).to(device)
+    model = ConvNextV2NanoClassifier(num_classes=num_classes, pretrained=False).to(device)
     model.load_state_dict(ckpt["model_state"], strict=True)
     model.eval()
     
