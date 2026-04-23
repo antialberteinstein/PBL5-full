@@ -11,12 +11,11 @@ import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import VerifyOtp from "./pages/VerifyOtp.jsx";
 import ClassDetail from "./pages/ClassDetail.jsx";
-// ĐÃ MỞ KHÓA: Import trang Dashboard thật
 import Dashboard from "./pages/Dashboard.jsx";
 
-// Mấy trang này tạm thời comment lại vì chưa làm tới
-// import Attendance from "./pages/Attendance.jsx";
-// import Profile from "./pages/Profile.jsx";
+// ✨ THÊM MỚI Ở ĐÂY: Import 2 trang quan trọng còn thiếu
+import AdminDashboard from "./pages/AdminDashboard.jsx";
+import FaceRegistration from "./pages/FaceRegistration.jsx";
 
 function App() {
   return (
@@ -25,15 +24,23 @@ function App() {
         {/* 1. Trang mặc định khi mở web sẽ vào Login */}
         <Route path="/" element={<Navigate to="/login" />} />
 
-        {/* 2. Các Route để test */}
+        {/* 2. Các Route chính */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-otp" element={<VerifyOtp />} />
+
+        {/* Route chi tiết lớp học */}
         <Route path="/class/:classId" element={<ClassDetail />} />
-        {/* 3. ĐÃ SỬA: Thay dòng chữ tạm bằng Component Dashboard thật */}
+
+        {/* Route Dashboard cho Teacher/Student */}
         <Route path="/dashboard" element={<Dashboard />} />
 
-        {/* Các trang khác chưa có thì chưa khai báo ở đây */}
+        {/* ✨ THÊM MỚI Ở ĐÂY: Khai báo "điểm đến" cho Admin và Đăng ký mặt */}
+        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/register-face" element={<FaceRegistration />} />
+
+        {/* 3. Route dự phòng: Nếu gõ bừa đường dẫn sẽ tự về Login */}
+        <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
     </Router>
   );
