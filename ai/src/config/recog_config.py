@@ -10,7 +10,7 @@ from pathlib import Path
 
 # ── Chế độ tải model ─────────────────────────────────────────────────────────────
 # Đặt True để dùng model đã fine-tune trên máy, False để dùng buffalo_l online.
-USE_LOCAL_MODEL: bool = True
+USE_LOCAL_MODEL: bool = False
 
 # Đường dẫn thư mục chứa model trên máy khi USE_LOCAL_MODEL = True.
 # Mặc định trỏ vào thư mục uriel đã được merge bởi merge_to_uriel.py.
