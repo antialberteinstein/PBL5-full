@@ -98,11 +98,11 @@ if __name__ == "__main__":
 
     ### 1. Initialize shared resources
     reg_recog_pipeline, classify_pipeline = get_registration_pipelines()
-    ver_recog_pipeline, _ = get_verification_pipelines()
+    ver_recog_pipeline, _, anti_spoofing_pipeline = get_verification_pipelines()
     camera = get_camera_client(CAMERA_CLIENT)
 
     ### 2. Start Uvicorn API server in background thread
     start_server()
 
     ### 3. Run OpenCV UI event loop on main thread (blocks forever)
-    run_ui_loop(reg_recog_pipeline, ver_recog_pipeline, classify_pipeline, camera)
+    run_ui_loop(reg_recog_pipeline, ver_recog_pipeline, classify_pipeline, anti_spoofing_pipeline, camera)

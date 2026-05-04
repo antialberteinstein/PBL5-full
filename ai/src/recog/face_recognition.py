@@ -17,8 +17,9 @@ import os
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
+import insightface.utils.storage as storage
 
-from config.recog_config import USE_LOCAL_MODEL, LOCAL_MODEL_DIR, LOCAL_MODEL_PACK
+from config.recog_config import MODEL_NAME, CUSTOM_MODEL_URL
 
 
 # ==============================================================================
@@ -108,11 +109,8 @@ class InsightFaceDetector(FaceRecognizer):
     """
     InsightFace-based face recognition implementation.
 
-    Supports two loading modes controlled by config.py:
-        - USE_LOCAL_MODEL = False: InsightFace auto-downloads buffalo_l from internet.
-        - USE_LOCAL_MODEL = True:  Loads from LOCAL_MODEL_DIR on local machine (offline).
-    
-    The model_dir parameter overrides LOCAL_MODEL_DIR when provided explicitly.
+    InsightFace-based face recognition implementation.
+    Automatically downloads and loads the model from a custom GitHub Release URL.
     """
     
     def __init__(
@@ -130,50 +128,35 @@ class InsightFaceDetector(FaceRecognizer):
         self.allowed_modules = allowed_modules
 
         ### Resolve model source
-        if USE_LOCAL_MODEL:
-            # Allow caller to override the directory at runtime
-            resolved_dir = str(model_dir) if model_dir else str(LOCAL_MODEL_DIR.parent)
-            self._model_name = LOCAL_MODEL_PACK
-            self._model_root = resolved_dir
-            logging.info(f"[InsightFace] Local model: {resolved_dir}/{LOCAL_MODEL_PACK}")
-        else:
-            self._model_name = "buffalo_l"
-            self._model_root = None
-            logging.info("[InsightFace] Auto-download mode: buffalo_l")
+        self._model_name = MODEL_NAME
+        logging.info(f"[InsightFace] Model: {self._model_name} (Source: {CUSTOM_MODEL_URL})")
         
         self.app: Optional[FaceAnalysis] = None
         self._is_prepared = False
     
     def prepare(self) -> None:
         """
-        Initialize the InsightFace model.
-        
-        Loads the model and prepares it for inference. This should be called
-        once before using the detector.
+        Loads the model and prepares it for inference.
         """
         if self._is_prepared:
             return
         
-        ### 1. Build FaceAnalysis kwargs
+        # 1. Override BASE_REPO_URL to point to Custom GitHub Release
+        storage.BASE_REPO_URL = CUSTOM_MODEL_URL
+
+        # 2. Build FaceAnalysis kwargs
         kwargs = {"name": self._model_name}
-        if self._model_root:
-            os.environ["INSIGHTFACE_HOME"] = self._model_root
-            kwargs["root"] = self._model_root
         if self.allowed_modules:
             kwargs["allowed_modules"] = self.allowed_modules
 
-        ### 2. Initialize FaceAnalysis with graceful fallback for older builds
+        # 3. Initialize FaceAnalysis
         try:
             self.app = FaceAnalysis(**kwargs)
         except TypeError:
             kwargs.pop("allowed_modules", None)
-            try:
-                self.app = FaceAnalysis(**kwargs)
-            except TypeError:
-                kwargs.pop("root", None)
-                self.app = FaceAnalysis(**kwargs)
+            self.app = FaceAnalysis(**kwargs)
         
-        ### 3. Prepare model with device and detection config
+        # 4. Prepare the app
         ctx_id = -1 if self.device == "cpu" else 0
         self.app.prepare(ctx_id=ctx_id, det_size=self.det_size)
         

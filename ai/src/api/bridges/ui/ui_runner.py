@@ -28,6 +28,7 @@ def run_ui_loop(
     registration_recog_pipeline: Any,
     verification_recog_pipeline: Any,
     classify_pipeline: Any,
+    anti_spoofing_pipeline: Any,
     camera: Any,
 ) -> None:
     """
@@ -76,6 +77,7 @@ def run_ui_loop(
                 ui = VerificationUI(
                     verification_recog_pipeline,
                     classify_pipeline,
+                    anti_spoofing_pipeline=anti_spoofing_pipeline,
                     on_match=task.params.get("on_match"),
                     on_frame=task.params.get("on_frame"),
                     stop_event=task.params.get("stop_event"),

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from api.bridges.ui.ui_runner import submit_task
 from api.bridges.ui.ui_tasks import UITask, UITaskType
+from api.bridges.lcd.lcd_bridge import send_to_lcd
 
 router = APIRouter(tags=["verify"])
 
@@ -46,6 +47,7 @@ async def verify_face_ws(websocket: WebSocket) -> None:
             "checkin_time": datetime.now().isoformat(timespec="seconds"),
         }
         asyncio.run_coroutine_threadsafe(websocket.send_json(payload), loop)
+        send_to_lcd(class_id)
 
     task = UITask(
         task_type=UITaskType.VERIFY,

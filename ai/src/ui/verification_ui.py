@@ -19,6 +19,7 @@ class VerificationUI:
         self,
         recog_pipeline,
         classify_pipeline,
+        anti_spoofing_pipeline=None,
         window_name: str = "Verification",
         color_success: tuple = colors.GREEN,
         color_failure: tuple = colors.RED,
@@ -32,7 +33,8 @@ class VerificationUI:
         """
         self.service = VerificationService(
             recog_pipeline=recog_pipeline,
-            classify_pipeline=classify_pipeline
+            classify_pipeline=classify_pipeline,
+            anti_spoofing_pipeline=anti_spoofing_pipeline,
         )
         self.window_name = window_name
         self.color_success = color_success
@@ -144,5 +146,12 @@ class VerificationUI:
             score_str = f"{score_val:.2f}" if score_val != float('inf') else "inf"
         text = f"{res['class_id']}: {score_str}" if res["is_known"] else f"UNKNOWN: {score_str}"
         cv2.putText(frame, text, (box[0], box[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Draw Liveness Info
+        if "is_real" in res:
+            liveness_text = "REAL" if res["is_real"] else "SPOOF"
+            liveness_color = colors.GREEN if res["is_real"] else colors.RED
+            cv2.putText(frame, f"Liveness: {liveness_text} ({res['antispoof_score']:.2f})", 
+                        (box[0], box[3] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, liveness_color, 2)
         
 

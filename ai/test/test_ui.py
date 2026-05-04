@@ -17,6 +17,7 @@ Administrative tasks are handled by dedicated scripts in /tools.
 - classify.preprocessing.ScalerProcessor
 - pipeline.classify.ClassificationPipeline
 - pipeline.recog.RecognitionPipeline
+- pipeline.anti_spoofing.AntiSpoofingPipeline
 """
 
 import os
@@ -44,6 +45,7 @@ from camera.udp_client import UDPCamera
 from classify.preprocessing import PCAProcessor, ScalerProcessor
 from pipeline.classify import ClassificationPipeline
 from pipeline.recog import RecognitionPipeline
+from pipeline.anti_spoofing import AntiSpoofingPipeline
 
 # ==============================================================================
 #                           SECTION: GLOBAL COMPONENTS
@@ -87,6 +89,7 @@ def main():
     scaler = ScalerProcessor()
     reg_recog_pipeline = None
     ver_recog_pipeline = None
+    anti_spoofing_pipeline = None
     
     # Try to load existing models
     if pca.load() and scaler.load():
@@ -103,6 +106,7 @@ def main():
             include_landmarks=False,
         )
         classify_pipeline = pipeline
+        anti_spoofing_pipeline = AntiSpoofingPipeline()
     else:
         logging.warning("No saved preprocessing models found! Use 'tools/train_preprocessing_models.py' first.")
     
@@ -129,7 +133,11 @@ def main():
             if ver_recog_pipeline is None:
                 logging.error("Pipeline not initialized. Train models first.")
                 continue
-            verify_ui = VerificationUI(ver_recog_pipeline, classify_pipeline)
+            verify_ui = VerificationUI(
+                ver_recog_pipeline, 
+                classify_pipeline, 
+                anti_spoofing_pipeline=anti_spoofing_pipeline
+            )
             verify_ui.run(camera)
             
         elif choice == '3':
@@ -155,6 +163,7 @@ def main():
                     include_landmarks=False,
                 )
                 classify_pipeline = pipeline
+                anti_spoofing_pipeline = AntiSpoofingPipeline()
                 logging.info("Pipeline reloaded successfully.")
             else:
                 logging.error("Failed to reload models.")

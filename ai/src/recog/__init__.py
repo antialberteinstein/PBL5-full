@@ -1,11 +1,9 @@
-from config.recog_config import USE_LOCAL_MODEL, LOCAL_MODEL_DIR, FINETUNED_MODEL_DIR, LOCAL_MODEL_PACK
+from config.recog_config import MODEL_NAME, CUSTOM_MODEL_URL
 from .face_recognition import FaceDetection, FaceRecognizer, InsightFaceDetector
 
 __all__ = [
-	"USE_LOCAL_MODEL",
-	"LOCAL_MODEL_DIR",
-	"FINETUNED_MODEL_DIR",
-	"LOCAL_MODEL_PACK",
+	"MODEL_NAME",
+	"CUSTOM_MODEL_URL",
 	"FaceDetection",
 	"FaceRecognizer",
 	"InsightFaceDetector",

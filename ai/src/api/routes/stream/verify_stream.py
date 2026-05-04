@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.bridges.ui.ui_runner import submit_task
 from api.bridges.ui.ui_tasks import UITask, UITaskType
+from api.bridges.lcd.lcd_bridge import send_to_lcd
 
 router = APIRouter(tags=["verify"])
 
@@ -59,9 +60,17 @@ async def verify_stream_local(websocket: WebSocket) -> None:
         except Exception:
             stop_event.set()
 
+    def on_match(class_id: str, score: float | None) -> None:
+        send_to_lcd(class_id)
+
     task = UITask(
         task_type=UITaskType.VERIFY,
-        params={"on_frame": on_frame, "stop_event": stop_event, "show_ui": False},
+        params={
+            "on_frame": on_frame,
+            "on_match": on_match,
+            "stop_event": stop_event,
+            "show_ui": False
+        },
     )
     submit_task(task)
 

@@ -8,6 +8,7 @@ from logging_setup import setup_logging
 from recog.face_recognition import InsightFaceDetector
 from pipeline.recog import RecognitionPipeline
 from pipeline.classify import ClassificationPipeline
+from pipeline.anti_spoofing import AntiSpoofingPipeline
 from classify.preprocessing import PCAProcessor, ScalerProcessor
 from classify.cosine_classifier import CosineClassifier
 from config.api_service_config import DEVICE, VERIFY_ALLOWED_MODULES
@@ -16,6 +17,7 @@ from config.api_service_config import DEVICE, VERIFY_ALLOWED_MODULES
 _recog_pipeline_register: Optional[RecognitionPipeline] = None
 _recog_pipeline_verify: Optional[RecognitionPipeline] = None
 _classify_pipeline: Optional[ClassificationPipeline] = None
+_anti_spoofing_pipeline: Optional[AntiSpoofingPipeline] = None
 
 
 def _init_classify_pipeline() -> ClassificationPipeline:
@@ -63,13 +65,15 @@ def get_registration_pipelines() -> Tuple[RecognitionPipeline, ClassificationPip
     return _recog_pipeline_register, _classify_pipeline
 
 
-def get_verification_pipelines() -> Tuple[RecognitionPipeline, ClassificationPipeline]:
-    global _recog_pipeline_verify, _classify_pipeline
+def get_verification_pipelines() -> Tuple[RecognitionPipeline, ClassificationPipeline, AntiSpoofingPipeline]:
+    global _recog_pipeline_verify, _classify_pipeline, _anti_spoofing_pipeline
 
     setup_logging()
     if _recog_pipeline_verify is None:
         _recog_pipeline_verify = _init_verification_recog_pipeline()
     if _classify_pipeline is None:
         _classify_pipeline = _init_classify_pipeline()
+    if _anti_spoofing_pipeline is None:
+        _anti_spoofing_pipeline = AntiSpoofingPipeline()
 
-    return _recog_pipeline_verify, _classify_pipeline
+    return _recog_pipeline_verify, _classify_pipeline, _anti_spoofing_pipeline

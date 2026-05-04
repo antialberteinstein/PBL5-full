@@ -132,6 +132,8 @@ logs/
 **/ai/logs/
 **/ai/models/
 
+**/database/
 **/dataset/
+**/test-dataset/
 **/logs/
 **/models/
