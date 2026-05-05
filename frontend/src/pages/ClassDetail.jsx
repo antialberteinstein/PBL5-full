@@ -26,19 +26,19 @@ const ClassDetail = () => {
   const verifySocketRef = useRef(null);
   const currentUsername = localStorage.getItem("username") || "";
 
-  // ✨ THÊM MỚI Ở ĐÂY: Các State để quản lý Import Excel
+  // Các State để quản lý Import Excel
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
 
-  // ✨ THÊM MỚI Ở ĐÂY: Tách hàm fetchStudents ra ngoài để tái sử dụng sau khi Import Excel
   const fetchStudents = async () => {
     try {
       setLoading(true);
       const response = await classAPI.getStudents(classId);
       const realStudents = response.data.map((sv) => ({
-        id: sv.username || sv.id,
+        id: sv.mssv || sv.username || sv.id,
+        username: sv.username,
         name: sv.fullName || sv.username || "Chưa cập nhật tên",
         faceRegistered: Boolean(sv.faceRegistered),
         status: "ABSENT",
@@ -56,7 +56,6 @@ const ClassDetail = () => {
     fetchStudents();
   }, [classId]);
 
-  // ... (Giữ nguyên các useEffect khác như cũ: fetchAttendanceHistory, cleanUp Socket, fetchFaceStatus)
   useEffect(() => {
     const fetchAttendanceHistory = async () => {
       try {
@@ -73,11 +72,10 @@ const ClassDetail = () => {
               return {
                 id: session.id,
                 datetime: session.datetime,
-                students: attended.data || [],
+                students: attended.data || [], // Dữ liệu này giờ đã có imageUrl từ Backend
                 open: false,
               };
             } catch (error) {
-              console.error("Lỗi lấy danh sách điểm danh:", error);
               return {
                 id: session.id,
                 datetime: session.datetime,
@@ -89,7 +87,6 @@ const ClassDetail = () => {
         );
         setAttendanceSessions(sessionsWithStudents);
       } catch (error) {
-        console.error("Lỗi lấy lịch sử điểm danh:", error);
         setAttendanceSessions([]);
       } finally {
         setAttendanceLoading(false);
@@ -123,12 +120,16 @@ const ClassDetail = () => {
     fetchFaceStatus();
   }, [isTeacher]);
 
-  // ... (Giữ nguyên handleStartAttendance, handleStopAttendance, handleRegisterFace)
   const handleStartAttendance = async () => {
     if (attendanceRunning) return;
     try {
       setAttendanceError("");
       setAttendanceRunning(true);
+
+      setStudents((prev) =>
+        prev.map((sv) => ({ ...sv, status: "ABSENT", time: null })),
+      );
+
       const response = await attendanceAPI.createSession({
         classId: parseInt(classId),
         datetime: new Date().toISOString(),
@@ -152,10 +153,13 @@ const ClassDetail = () => {
           }
           if (!data?.class_id || !newAttendanceId) return;
 
+          // ✨ CẬP NHẬT: Gửi kèm link ảnh AI chụp về Backend
           await attendanceAPI.teacherCheckin(newAttendanceId, {
             studentUsername: data.class_id,
             checkinTime: data.checkin_time,
+            imageUrl: data.image_url, // Link ảnh từ Python gửi qua WebSocket
           });
+
           const checkinTime = data.checkin_time
             ? new Date(data.checkin_time)
             : new Date();
@@ -166,7 +170,7 @@ const ClassDetail = () => {
 
           setStudents((prev) =>
             prev.map((sv) =>
-              sv.id === data.class_id
+              sv.username === data.class_id
                 ? { ...sv, status: "PRESENT", time: timeLabel }
                 : sv,
             ),
@@ -176,7 +180,7 @@ const ClassDetail = () => {
         }
       };
       socket.onerror = () => {
-        setAttendanceError("Không thể kết nối dịch vụ điểm danh");
+        setAttendanceError("Không thể kết nối dịch vụ AI điểm danh.");
         setAttendanceRunning(false);
       };
       socket.onclose = () => setAttendanceRunning(false);
@@ -184,6 +188,7 @@ const ClassDetail = () => {
       setAttendanceError(
         error.response?.data || "Không thể kết nối dịch vụ điểm danh",
       );
+      setAttendanceRunning(false);
     }
   };
 
@@ -195,9 +200,38 @@ const ClassDetail = () => {
     setAttendanceRunning(false);
   };
 
+  const handleManualCheckin = async (studentUsername) => {
+    if (!currentAttendanceId) {
+      alert("Vui lòng mở điểm danh trước khi thao tác!");
+      return;
+    }
+
+    try {
+      // ✨ CẬP NHẬT: Điểm danh tay thì imageUrl truyền null
+      await attendanceAPI.teacherCheckin(currentAttendanceId, {
+        studentUsername: studentUsername,
+        checkinTime: new Date().toISOString(),
+        imageUrl: null,
+      });
+
+      const timeLabel = new Date().toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      setStudents((prev) =>
+        prev.map((sv) =>
+          sv.username === studentUsername
+            ? { ...sv, status: "PRESENT", time: timeLabel }
+            : sv,
+        ),
+      );
+    } catch (error) {
+      alert("Lỗi: " + (error.response?.data || "Không thể điểm danh bằng tay"));
+    }
+  };
+
   const handleRegisterFace = async () => {
-    if (!currentUsername)
-      return alert("Không tìm thấy tên đăng nhập. Vui lòng đăng nhập lại.");
+    if (!currentUsername) return alert("Không tìm thấy tên đăng nhập.");
     try {
       setFaceRegistering(true);
       setFaceError("");
@@ -208,28 +242,24 @@ const ClassDetail = () => {
       setFaceResult("Đăng ký khuôn mặt thành công.");
     } catch (error) {
       setFaceError(
-        error.response?.data || "Không thể kết nối dịch vụ nhận diện khuôn mặt",
+        error.response?.data || "Không thể kết nối dịch vụ nhận diện",
       );
     } finally {
       setFaceRegistering(false);
     }
   };
 
-  // ✨ THÊM MỚI Ở ĐÂY: Hàm xử lý gửi file Excel
   const handleImportExcel = async (e) => {
     e.preventDefault();
     if (!selectedFile) return alert("Vui lòng chọn file!");
-
     const formData = new FormData();
     formData.append("file", selectedFile);
-
     try {
       setImporting(true);
       setImportResult("Đang xử lý dữ liệu...");
       const response = await classAPI.importStudentsExcel(classId, formData);
       setImportResult("✅ " + response.data);
       setSelectedFile(null);
-      // Tự động load lại danh sách sinh viên
       fetchStudents();
     } catch (error) {
       setImportResult("❌ Lỗi: " + (error.response?.data || "Import thất bại"));
@@ -240,7 +270,6 @@ const ClassDetail = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative">
-      {/* KHU VỰC HEADER LỚP HỌC */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
         <div className="flex items-center space-x-4">
           <button
@@ -276,91 +305,49 @@ const ClassDetail = () => {
             <button
               onClick={handleStopAttendance}
               disabled={!attendanceRunning}
-              className="px-4 py-2 border border-red-500 text-red-500 bg-white hover:bg-red-50 font-semibold rounded-md shadow-sm transition flex items-center"
+              className="px-4 py-2 border border-red-500 text-red-500 bg-white hover:bg-red-50 font-semibold rounded-md shadow-sm transition disabled:opacity-50"
             >
-              <div className="w-2 h-2 rounded-full bg-red-500 mr-2"></div> Đóng
-              điểm danh
+              Đóng điểm danh
             </button>
             <button
               onClick={handleStartAttendance}
               disabled={attendanceRunning}
-              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-md shadow-sm transition flex items-center"
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-md shadow-sm transition disabled:opacity-50 flex items-center"
             >
-              <svg
-                className="w-5 h-5 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                ></path>
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                ></path>
-              </svg>
               Mở điểm danh
             </button>
           </div>
         )}
       </header>
 
-      {/* THANH MENU TABS */}
       <div className="bg-white border-b border-gray-200 px-6">
         <div className="flex space-x-8">
           {isTeacher && (
             <button
               onClick={() => setActiveTab("live")}
-              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "live" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
+              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "live" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
             >
               🔴 Live Điểm danh
             </button>
           )}
           <button
             onClick={() => setActiveTab("students")}
-            className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "students" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
+            className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "students" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
           >
             👥 Danh sách lớp
           </button>
           <button
             onClick={() => setActiveTab("history")}
-            className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "history" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
+            className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "history" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
           >
             📅 Lịch sử buổi học
           </button>
         </div>
       </div>
 
-      {/* NỘI DUNG CHÍNH */}
       <main className="flex-1 p-6 lg:p-8">
-        {/* Nội dung Tab Live và loading (Giữ nguyên) */}
         {loading ? (
           <div className="flex justify-center items-center py-20 text-gray-500">
-            <svg
-              className="animate-spin h-8 w-8 text-indigo-600 mr-3"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-              ></circle>
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
             Đang tải dữ liệu...
           </div>
         ) : (
@@ -373,314 +360,183 @@ const ClassDetail = () => {
 
             {/* TAB 1: LIVE */}
             {isTeacher && activeTab === "live" && (
-              <div>
-                <div className="mb-6 flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Trạng thái sinh viên hôm nay
-                  </h2>
-                  <div className="flex space-x-4 text-sm font-medium">
-                    <span className="flex items-center text-green-600">
-                      <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>{" "}
-                      Đã có mặt
-                    </span>
-                    <span className="flex items-center text-gray-500">
-                      <div className="w-3 h-3 bg-gray-300 rounded-full mr-2"></div>{" "}
-                      Chưa đến
-                    </span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {students.map((sv, index) => (
-                    <div
-                      key={index}
-                      className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center transition hover:shadow-md ${sv.status === "PRESENT" ? "bg-green-50 border-green-200" : "bg-white border-gray-200 opacity-80"}`}
-                    >
-                      <div
-                        className={`w-14 h-14 rounded-full flex items-center justify-center mb-3 relative overflow-hidden ${sv.status === "PRESENT" ? "bg-green-200 text-green-700" : "bg-gray-200 text-gray-500"}`}
-                      >
-                        <span className="font-bold text-lg uppercase">
-                          {sv.name ? sv.name.charAt(0) : "S"}
-                        </span>
-                      </div>
-                      <p
-                        className={`font-bold text-sm truncate w-full ${sv.status === "PRESENT" ? "text-green-700" : "text-gray-700"}`}
-                      >
-                        {sv.name}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1 font-medium">
-                        {sv.id}
-                      </p>
-                      {sv.status === "PRESENT" ? (
-                        <span className="mt-3 px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md border border-green-200">
-                          Vào lúc {sv.time}
-                        </span>
-                      ) : (
-                        <span className="mt-3 px-2 py-1 bg-gray-100 text-gray-500 text-[10px] font-bold rounded-md border border-gray-200">
-                          Chưa điểm danh
-                        </span>
-                      )}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {students.map((sv, index) => (
+                  <div
+                    key={index}
+                    className={`p-4 rounded-xl border flex flex-col items-center text-center ${sv.status === "PRESENT" ? "bg-green-50 border-green-200" : "bg-white"}`}
+                  >
+                    <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center mb-3 font-bold uppercase text-gray-500">
+                      {sv.name.charAt(0)}
                     </div>
-                  ))}
-                </div>
+                    <p className="font-bold text-sm truncate w-full">
+                      {sv.name}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{sv.id}</p>
+                    {sv.status === "PRESENT" ? (
+                      <span className="mt-3 px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md">
+                        Vào lúc {sv.time}
+                      </span>
+                    ) : (
+                      <div className="mt-3 w-full">
+                        {attendanceRunning && (
+                          <button
+                            onClick={() => handleManualCheckin(sv.username)}
+                            className="w-full px-2 py-1 bg-indigo-50 text-indigo-700 text-[11px] font-bold rounded border border-indigo-200"
+                          >
+                            + Điểm danh tay
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* TAB 2: DANH SÁCH LỚP CHUNG */}
+            {/* TAB 2: DANH SÁCH LỚP */}
             {activeTab === "students" && (
-              <div>
-                {/* ✨ THÊM MỚI Ở ĐÂY: Nút Nhập Excel cho Giáo viên */}
-                {isTeacher && (
-                  <div className="mb-4 flex justify-between items-center bg-indigo-50 border border-indigo-100 p-4 rounded-lg">
-                    <div>
-                      <h3 className="text-sm font-bold text-indigo-800">
-                        Quản lý danh sách lớp
-                      </h3>
-                      <p className="text-xs text-indigo-600 mt-1">
-                        Thêm nhanh hàng loạt sinh viên bằng file Excel (.xlsx)
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setShowImportModal(true)}
-                      className="px-4 py-2 bg-white text-indigo-700 border border-indigo-200 font-semibold rounded-md shadow-sm hover:bg-indigo-50 transition flex items-center"
-                    >
-                      📥 Nhập Excel
-                    </button>
-                  </div>
-                )}
+              <div className="bg-white rounded-lg border overflow-hidden">
+                <table className="min-w-full divide-y">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        MSSV
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Họ và Tên
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Mặt
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {students.map((sv, idx) => (
+                      <tr key={idx}>
+                        <td className="px-6 py-4 text-sm font-semibold">
+                          {sv.id}
+                        </td>
+                        <td className="px-6 py-4 text-sm">{sv.name}</td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`px-2 py-1 text-xs font-bold rounded-full ${sv.faceRegistered ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                          >
+                            {sv.faceRegistered ? "Đã ĐK" : "Chưa"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-                {/* Phần Đăng ký khuôn mặt của Sinh viên (Giữ nguyên) */}
-                {!isTeacher && (
-                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            {/* TAB 3: LỊCH SỬ (ĐÃ CẬP NHẬT CỘT ẢNH) */}
+            {activeTab === "history" && (
+              <div className="space-y-4">
+                {attendanceSessions.map((session) => (
+                  <div key={session.id} className="bg-white rounded-lg border">
+                    <button
+                      onClick={() =>
+                        setAttendanceSessions((prev) =>
+                          prev.map((s) =>
+                            s.id === session.id ? { ...s, open: !s.open } : s,
+                          ),
+                        )
+                      }
+                      className="w-full px-4 py-3 flex justify-between items-center"
+                    >
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-800">
-                          Đăng ký khuôn mặt
-                        </h3>
-                        <p className="text-xs text-gray-500 mt-1">
-                          ID đăng ký: {currentUsername || "(chưa có)"}
+                        <p className="text-sm font-bold">Buổi #{session.id}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(session.datetime).toLocaleString("vi-VN")}
                         </p>
                       </div>
-                      {!faceRegistered ? (
-                        <button
-                          onClick={handleRegisterFace}
-                          disabled={faceRegistering}
-                          className={`px-4 py-2 rounded-md text-sm font-semibold transition ${faceRegistering ? "bg-gray-300 text-gray-600" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}
-                        >
-                          {faceRegistering
-                            ? "Đang mở camera..."
-                            : "Bắt đầu đăng ký"}
-                        </button>
-                      ) : (
-                        <div className="px-4 py-2 rounded-md text-sm font-semibold text-green-700 bg-green-50 border border-green-200">
-                          Đã đăng ký khuôn mặt
-                        </div>
-                      )}
-                    </div>
-                    {faceError && (
-                      <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                        {faceError}
-                      </div>
-                    )}
-                    {faceResult && (
-                      <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
-                        {faceResult}
+                      <span className="text-xs text-indigo-600 font-bold">
+                        {session.open ? "Đóng" : "Xem chi tiết"}
+                      </span>
+                    </button>
+                    {session.open && (
+                      <div className="border-t overflow-x-auto">
+                        <table className="min-w-full divide-y">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                MSSV
+                              </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                Họ Tên
+                              </th>
+                              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                                Ảnh Điểm Danh
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {session.students.map((sv, idx) => (
+                              <tr key={idx}>
+                                <td className="px-4 py-2 text-sm font-bold">
+                                  {sv.mssv}
+                                </td>
+                                <td className="px-4 py-2 text-sm">
+                                  {sv.fullName}
+                                </td>
+                                <td className="px-4 py-2 text-center">
+                                  {/* ✨ HIỂN THỊ ẢNH TỪ AI HOẶC CHỮ ĐIỂM DANH TAY */}
+                                  {sv.imageUrl ? (
+                                    <img
+                                      src={sv.imageUrl}
+                                      alt="AI Checkin"
+                                      className="w-12 h-12 object-cover rounded-md mx-auto border"
+                                    />
+                                  ) : (
+                                    <span className="text-[10px] italic text-gray-400 bg-gray-50 px-2 py-1 rounded">
+                                      Điểm danh tay
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
-                )}
-
-                {/* Bảng Danh sách lớp (Giữ nguyên) */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          MSSV
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Họ và Tên
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Đã đăng ký mặt
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {students.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan="3"
-                            className="px-6 py-8 text-center text-sm text-gray-500"
-                          >
-                            Chưa có sinh viên nào trong lớp này.
-                          </td>
-                        </tr>
-                      ) : (
-                        students.map((sv, idx) => (
-                          <tr key={idx} className="hover:bg-gray-50 transition">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                              {sv.id}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
-                              {sv.name}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                              <span
-                                className={`px-2 py-1 text-xs font-bold rounded-full ${sv.faceRegistered ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
-                              >
-                                {sv.faceRegistered ? "Đã đăng ký" : "Chưa"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                ))}
               </div>
             )}
           </>
         )}
-
-        {/* TAB 3: LỊCH SỬ (Giữ nguyên) ... */}
-        {activeTab === "history" && (
-          /* Toàn bộ code Tab History của Khang lúc nãy ở đây */
-          <div>
-            {attendanceLoading ? (
-              <div className="text-center text-gray-500 py-12">
-                Đang tải lịch sử điểm danh...
-              </div>
-            ) : attendanceSessions.length === 0 ? (
-              <div className="text-center text-gray-500 py-12">
-                Chưa có buổi điểm danh nào.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {attendanceSessions.map((session) => {
-                  const dateLabel = session.datetime
-                    ? new Date(session.datetime).toLocaleString("vi-VN")
-                    : "Không rõ thời gian";
-                  return (
-                    <div
-                      key={session.id}
-                      className="bg-white rounded-lg shadow-sm border border-gray-200"
-                    >
-                      <button
-                        onClick={() =>
-                          setAttendanceSessions((prev) =>
-                            prev.map((item) =>
-                              item.id === session.id
-                                ? { ...item, open: !item.open }
-                                : item,
-                            ),
-                          )
-                        }
-                        className="w-full px-4 py-3 flex items-center justify-between text-left"
-                      >
-                        <div>
-                          <p className="text-sm font-semibold text-gray-800">
-                            Buổi #{session.id}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {dateLabel}
-                          </p>
-                        </div>
-                        <span className="text-xs font-semibold text-indigo-600">
-                          {session.open ? "Thu gọn" : "Mở"}
-                        </span>
-                      </button>
-                      {session.open && (
-                        <div className="border-t border-gray-200">
-                          {session.students.length === 0 ? (
-                            <div className="px-4 py-4 text-sm text-gray-500">
-                              Không có sinh viên đã điểm danh.
-                            </div>
-                          ) : (
-                            <table className="min-w-full divide-y divide-gray-200">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    MSSV
-                                  </th>
-                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Họ và Tên
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-gray-200">
-                                {session.students.map((sv, idx) => (
-                                  <tr key={idx} className="hover:bg-gray-50">
-                                    <td className="px-4 py-2 text-sm font-semibold text-gray-900">
-                                      {sv.username || sv.id}
-                                    </td>
-                                    <td className="px-4 py-2 text-sm text-gray-700">
-                                      {sv.fullName ||
-                                        sv.username ||
-                                        "Chưa cập nhật"}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
       </main>
 
-      {/* ✨ THÊM MỚI Ở ĐÂY: MODAL NHẬP EXCEL (Chỉ render khi là Giáo viên) */}
+      {/* MODAL IMPORT EXCEL */}
       {isTeacher && showImportModal && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[32rem] p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">
-              Thêm sinh viên bằng Excel
-            </h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Cột đầu tiên của file Excel (Cột A) phải chứa Mã sinh viên
-              (Username).
-            </p>
-
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center bg-gray-50 mb-4">
-              <input
-                type="file"
-                accept=".xlsx, .xls"
-                onChange={(e) => setSelectedFile(e.target.files[0])}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-              />
-            </div>
-
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-xl font-bold mb-4">Nhập sinh viên từ Excel</h2>
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              onChange={(e) => setSelectedFile(e.target.files[0])}
+              className="mb-4 block w-full text-sm"
+            />
             {importResult && (
-              <div
-                className={`p-3 rounded-md text-sm whitespace-pre-wrap ${importResult.includes("❌") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}
-              >
-                {importResult}
-              </div>
+              <p className="text-xs mb-4 text-indigo-600">{importResult}</p>
             )}
-
-            <div className="flex justify-end space-x-3 mt-6">
+            <div className="flex justify-end gap-2">
               <button
-                type="button"
-                onClick={() => {
-                  setShowImportModal(false);
-                  setImportResult("");
-                  setSelectedFile(null);
-                }}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
+                onClick={() => setShowImportModal(false)}
+                className="text-sm px-4 py-2"
               >
-                Đóng
+                Hủy
               </button>
               <button
                 onClick={handleImportExcel}
                 disabled={importing || !selectedFile}
-                className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50"
+                className="bg-indigo-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
               >
-                {importing ? "Đang nhập..." : "Bắt đầu Import"}
+                {importing ? "Đang xử lý..." : "Bắt đầu"}
               </button>
             </div>
           </div>

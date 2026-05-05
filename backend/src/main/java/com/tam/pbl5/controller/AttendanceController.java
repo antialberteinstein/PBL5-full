@@ -1,8 +1,8 @@
 package com.tam.pbl5.controller;
 
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
-import com.tam.pbl5.dto.request.StudentCheckinRequest;
 import com.tam.pbl5.dto.request.TeacherCheckinRequest;
+import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
 import com.tam.pbl5.entity.Attendance;
 import com.tam.pbl5.entity.Student;
 import com.tam.pbl5.service.AttendanceService;
@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/attendance") // Đường dẫn gốc cho module điểm danh
+@RequestMapping("/api/attendance")
 @RequiredArgsConstructor
 public class AttendanceController {
 
@@ -27,10 +27,7 @@ public class AttendanceController {
             @RequestBody AttendanceCreateRequest request,
             @RequestHeader("Authorization") String token) {
         try {
-            // Sửa lại thành Attendance thay vì String
             Attendance newAttendance = attendanceService.createAttendanceSession(request, token);
-
-            // Trả về thẳng cái object mới tạo cho React (React sẽ đọc được newAttendance.id)
             return ResponseEntity.ok(newAttendance);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -40,7 +37,6 @@ public class AttendanceController {
     // ==========================================
     // 1B. API LẤY DANH SÁCH BUỔI ĐIỂM DANH THEO LỚP
     // ==========================================
-    // Cách gọi: GET http://localhost:8080/api/attendance/{classId}
     @GetMapping("/{classId}")
     public ResponseEntity<?> getAttendanceByClass(
             @PathVariable Integer classId,
@@ -54,16 +50,15 @@ public class AttendanceController {
     }
 
     // ==========================================
-    // 2. API Sinh viên tự điểm danh
+    // 2. API Sinh viên / AI tự điểm danh
     // ==========================================
-    // Cách gọi: POST http://localhost:8080/api/attendance/checkin
     @PostMapping("/checkin")
     public ResponseEntity<?> studentCheckin(
             @RequestParam Integer attendanceId,
             @RequestParam String studentUsername,
+            @RequestParam(required = false) String imageUrl,
             @RequestHeader(value = "x-api-key", required = false) String apiKey) {
 
-        // 1. Mật khẩu bí mật để bảo vệ API (Chỉ AI mới biết mã này để gửi vào Header)
         String SECRET_AI_KEY = "PBL5_AI_Secret_Key_123456";
 
         if (apiKey == null || !apiKey.equals(SECRET_AI_KEY)) {
@@ -71,8 +66,7 @@ public class AttendanceController {
         }
 
         try {
-            // 2. Gọi xuống hàm duy nhất trong Service của Khang
-            String message = attendanceService.studentCheckin(attendanceId, studentUsername);
+            String message = attendanceService.studentCheckin(attendanceId, studentUsername, imageUrl);
             return ResponseEntity.ok(message);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -82,14 +76,14 @@ public class AttendanceController {
     // ==========================================
     // 3. API Xem danh sách sinh viên đã điểm danh (Có mặt)
     // ==========================================
-    // Cách gọi: GET http://localhost:8080/api/attendance/1/attended-students
     @GetMapping("/{attendanceId}/attended-students")
     public ResponseEntity<?> getAttendedStudents(
             @PathVariable Integer attendanceId,
             @RequestHeader("Authorization") String token) {
         try {
-            List<Student> students = attendanceService.getAttendedStudents(attendanceId, token);
-            return ResponseEntity.ok(students);
+            // ✨ ĐÃ SỬA: Chuyển từ List<Student> sang List<AttendedStudentResponse>
+            List<AttendedStudentResponse> response = attendanceService.getAttendedStudents(attendanceId, token);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -98,12 +92,12 @@ public class AttendanceController {
     // ==========================================
     // 4. API Xem danh sách sinh viên vắng mặt
     // ==========================================
-    // Cách gọi: GET http://localhost:8080/api/attendance/1/absent-students
     @GetMapping("/{attendanceId}/absent-students")
     public ResponseEntity<?> getAbsentStudents(
             @PathVariable Integer attendanceId,
             @RequestHeader("Authorization") String token) {
         try {
+            // Danh sách vắng vẫn trả về List<Student> vì chưa có thông tin điểm danh (nên không có ảnh)
             List<Student> students = attendanceService.getAbsentStudents(attendanceId, token);
             return ResponseEntity.ok(students);
         } catch (Exception e) {
@@ -114,7 +108,6 @@ public class AttendanceController {
     // ==========================================
     // 5. API ĐÁNH DẤU TẤT CẢ SINH VIÊN CÓ MẶT
     // ==========================================
-    // Cách gọi: POST http://localhost:8080/api/attendance/{attendanceId}/mark-all-present
     @PostMapping("/{attendanceId}/mark-all-present")
     public ResponseEntity<?> markAllPresent(
             @PathVariable Integer attendanceId,
@@ -130,7 +123,6 @@ public class AttendanceController {
     // ==========================================
     // 6. API GIÁO VIÊN GHI NHẬN ĐIỂM DANH TỪ VERIFY
     // ==========================================
-    // Cách gọi: POST http://localhost:8080/api/attendance/{attendanceId}/teacher-checkin
     @PostMapping("/{attendanceId}/teacher-checkin")
     public ResponseEntity<?> teacherCheckin(
             @PathVariable Integer attendanceId,
@@ -141,6 +133,7 @@ public class AttendanceController {
                     attendanceId,
                     request.getStudentUsername(),
                     request.getCheckinTime(),
+                    request.getImageUrl(),
                     token
             );
             return ResponseEntity.ok(message);

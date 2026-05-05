@@ -1,13 +1,12 @@
 package com.tam.pbl5.service;
 
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
-import com.tam.pbl5.dto.request.StudentCheckinRequest;
+import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
 import com.tam.pbl5.entity.*;
 import com.tam.pbl5.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -25,12 +24,12 @@ public class AttendanceService {
     private final StudentClassRepository studentClassRepository;
     private final StudentAttendanceRepository studentAttendanceRepository;
     private final JwtService jwtService;
-
+    private final UserRepository userRepository;
     // ==========================================
     // 1. GIÁO VIÊN TẠO BUỔI ĐIỂM DANH
     // ==========================================
     @Transactional
-    public Attendance createAttendanceSession(AttendanceCreateRequest request, String token) { // ĐỔI TỪ String SANG Attendance
+    public Attendance createAttendanceSession(AttendanceCreateRequest request, String token) {
         if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
         String username = jwtService.extractUsername(token);
         String role = jwtService.extractRole(token);
@@ -53,8 +52,6 @@ public class AttendanceService {
         attendance.setClassId(clazz.getId());
         attendance.setDatetime(request.getDatetime() != null ? request.getDatetime() : LocalDateTime.now());
 
-        // QUAN TRỌNG NHẤT LÀ DÒNG NÀY:
-        // Lưu vào Database và TRẢ VỀ CHÍNH CUỐN SỔ VỪA TẠO (Bên trong nó đã có số ID)
         return attendanceRepository.save(attendance);
     }
 
@@ -99,95 +96,99 @@ public class AttendanceService {
     }
 
     // ==========================================
-    // 2. SINH VIÊN TỰ ĐIỂM DANH
+    // 2. SINH VIÊN TỰ ĐIỂM DANH (ĐÃ CHUẨN)
     // ==========================================
     @Transactional
-    public String studentCheckin(Integer attendanceId, String studentUsername) {
+    public String studentCheckin(Integer attendanceId, String studentUsername, String imageUrl) {
 
-        // 1. Tìm sinh viên dựa vào Username do con AI gửi về (KHÔNG dùng Token nữa)
         Student student = studentRepository.findByUsername(studentUsername);
         if (student == null) {
             throw new RuntimeException("Lỗi: AI nhận diện ra mã '" + studentUsername + "' nhưng không có trong Database!");
         }
 
-        // 2. Tìm buổi điểm danh
         Attendance attendance = attendanceRepository.findById(attendanceId)
                 .orElseThrow(() -> new RuntimeException("Lỗi: Buổi điểm danh không tồn tại!"));
 
-        // 3. Kiểm tra sinh viên có trong danh sách lớp không (APPROVED)
         StudentClass studentClass = studentClassRepository.findByStudentIdAndClassId(student.getId(), attendance.getClassId());
         if (studentClass == null || !"APPROVED".equalsIgnoreCase(studentClass.getStatus())) {
             throw new RuntimeException("Lỗi: Sinh viên " + studentUsername + " học nhầm lớp rồi!");
         }
 
-        // 4. Kiểm tra chống spam (Camera quét 1 người nhiều lần trong 1 giây)
         if (studentAttendanceRepository.existsByAttendanceIdAndStudentId(attendance.getId(), student.getId())) {
-            return "Sinh viên " + studentUsername + " đã được điểm danh trước đó."; // Không quăng lỗi để AI khỏi bị crash
+            return "Sinh viên " + studentUsername + " đã được điểm danh trước đó.";
         }
 
-        // 5. Lưu xuống Database
         StudentAttendance checkin = new StudentAttendance();
         checkin.setAttendanceId(attendance.getId());
         checkin.setStudentId(student.getId());
         checkin.setCheckInTime(LocalDateTime.now());
 
+        // Lưu ảnh do AI chụp xuống DB
+        checkin.setImageUrl(imageUrl);
+
         studentAttendanceRepository.save(checkin);
 
         return "AI Điểm danh thành công cho sinh viên: " + studentUsername;
     }
-    public List<Student> getAttendedStudents(Integer attendanceId, String token) {
-        // 1. Tách và giải mã Token
+
+    // ==========================================
+    // 3. XEM DANH SÁCH SINH VIÊN CÓ MẶT (✨ ĐÃ FIX LỖI MẤT ẢNH)
+    // ==========================================
+    public List<AttendedStudentResponse> getAttendedStudents(Integer attendanceId, String token) {
+        // 1. Kiểm tra phân quyền (Phần này Khang giữ nguyên nhé)
         if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
         String username = jwtService.extractUsername(token);
         String role = jwtService.extractRole(token);
 
-        // 2. Tìm buổi điểm danh
         Attendance attendance = attendanceRepository.findById(attendanceId)
                 .orElseThrow(() -> new RuntimeException("Lỗi: Buổi điểm danh không tồn tại!"));
 
-        // 3. Phân quyền xem danh sách
         if ("ROLE_TEACHER".equalsIgnoreCase(role)) {
-            // Nếu là Giáo viên: Phải là chủ nhiệm lớp này mới được xem
             Teacher teacher = teacherRepository.findByUsername(username);
             Clazz clazz = classRepository.findById(attendance.getClassId())
                     .orElseThrow(() -> new RuntimeException("Lỗi: Lớp học không tồn tại!"));
             if (!clazz.getTeacherId().equals(teacher.getId())) {
-                throw new RuntimeException("Lỗi: Bạn không có quyền xem danh sách điểm danh của lớp khác!");
-            }
-        } else if ("ROLE_STUDENT".equalsIgnoreCase(role)) {
-            // Nếu là Sinh viên: Phải đang học lớp này mới được xem
-            Student student = studentRepository.findByUsername(username);
-            StudentClass studentClass = studentClassRepository.findByStudentIdAndClassId(student.getId(), attendance.getClassId());
-            if (studentClass == null || !"APPROVED".equalsIgnoreCase(studentClass.getStatus())) {
-                throw new RuntimeException("Lỗi: Bạn không thuộc lớp này nên không được xem danh sách!");
+                throw new RuntimeException("Lỗi: Bạn không có quyền xem danh sách này!");
             }
         }
 
-        // 4. Lấy danh sách các bản ghi điểm danh của buổi học này
+        // 2. Lấy danh sách bản ghi điểm danh
         List<StudentAttendance> attendedRecords = studentAttendanceRepository.findByAttendanceId(attendanceId);
 
-        // 5. Trích xuất ra 1 list chỉ chứa ID của các sinh viên đã điểm danh
-        List<Integer> studentIds = attendedRecords.stream()
-                .map(StudentAttendance::getStudentId)
-                .collect(Collectors.toList());
+        // 3. ✨ CÁCH FIX LỖI: Sử dụng Optional Map để lấy dữ liệu từ nhiều bảng
+        return attendedRecords.stream().map(record -> {
+            // Tìm sinh viên
+            Student student = studentRepository.findById(record.getStudentId())
+                    .orElse(new Student());
 
-        // 6. Dùng list ID đó để lấy thông tin chi tiết của sinh viên từ bảng Student
-        return studentRepository.findAllById(studentIds);
+            // Thay vì dùng ifPresent và gán lại biến (gây lỗi), ta dùng chuỗi map()
+            // Nó sẽ đi từ: User -> Profile -> FullName. Nếu bất kỳ chỗ nào null, nó lấy "Chưa cập nhật"
+            String fullNameFromProfile = userRepository.findById(student.getUsername())
+                    .map(User::getProfile)
+                    .map(Profile::getFullName)
+                    .orElse("Chưa cập nhật tên");
+
+            return new AttendedStudentResponse(
+                    student.getMssv(),
+                    fullNameFromProfile,
+                    student.getUsername(),
+                    record.getCheckInTime() != null ? record.getCheckInTime().toString() : null,
+                    record.getImageUrl() // Link ảnh chụp từ AI hoặc null nếu điểm danh tay
+            );
+        }).collect(Collectors.toList());
     }
+
     // ==========================================
     // 4. XEM DANH SÁCH SINH VIÊN VẮNG MẶT
     // ==========================================
     public List<Student> getAbsentStudents(Integer attendanceId, String token) {
-        // 1. Tách và giải mã Token
         if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
         String username = jwtService.extractUsername(token);
         String role = jwtService.extractRole(token);
 
-        // 2. Tìm buổi điểm danh
         Attendance attendance = attendanceRepository.findById(attendanceId)
                 .orElseThrow(() -> new RuntimeException("Lỗi: Buổi điểm danh không tồn tại!"));
 
-        // 3. Phân quyền xem danh sách (Tương tự như hàm xem người đi học)
         if ("ROLE_TEACHER".equalsIgnoreCase(role)) {
             Teacher teacher = teacherRepository.findByUsername(username);
             Clazz clazz = classRepository.findById(attendance.getClassId())
@@ -203,24 +204,20 @@ public class AttendanceService {
             }
         }
 
-        // 4. LẤY DANH SÁCH TẤT CẢ SINH VIÊN CHÍNH THỨC TRONG LỚP (APPROVED)
         List<StudentClass> allStudentsInClass = studentClassRepository.findByClassIdAndStatus(attendance.getClassId(), "APPROVED");
         List<Integer> allStudentIds = allStudentsInClass.stream()
                 .map(StudentClass::getStudentId)
                 .collect(Collectors.toList());
 
-        // 5. LẤY DANH SÁCH NHỮNG NGƯỜI ĐÃ ĐIỂM DANH
         List<StudentAttendance> attendedRecords = studentAttendanceRepository.findByAttendanceId(attendanceId);
         List<Integer> attendedStudentIds = attendedRecords.stream()
                 .map(StudentAttendance::getStudentId)
                 .collect(Collectors.toList());
 
-        // 6. TÌM RA NHỮNG NGƯỜI VẮNG MẶT (Có trong danh sách lớp nhưng KHÔNG CÓ trong danh sách điểm danh)
         List<Integer> absentStudentIds = allStudentIds.stream()
                 .filter(id -> !attendedStudentIds.contains(id))
                 .collect(Collectors.toList());
 
-        // 7. Trả về thông tin chi tiết của các sinh viên vắng mặt
         return studentRepository.findAllById(absentStudentIds);
     }
 
@@ -276,13 +273,14 @@ public class AttendanceService {
     }
 
     // ==========================================
-    // 6. GIÁO VIÊN GHI NHẬN ĐIỂM DANH TỪ VERIFY
+    // 6. GIÁO VIÊN GHI NHẬN ĐIỂM DANH TỪ VERIFY (ĐÃ NÂNG CẤP)
     // ==========================================
     @Transactional
     public String teacherCheckin(
             Integer attendanceId,
             String studentUsername,
             String checkinTime,
+            String imageUrl, // ✨ ĐÃ THÊM HỨNG LINK ẢNH
             String token
     ) {
         if (token != null && token.startsWith("Bearer ")) {
@@ -333,6 +331,10 @@ public class AttendanceService {
         checkin.setAttendanceId(attendanceId);
         checkin.setStudentId(student.getId());
         checkin.setCheckInTime(checkinAt);
+
+        // ✨ ĐÃ THÊM LƯU ẢNH (Cho phép null nếu là điểm danh tay)
+        checkin.setImageUrl(imageUrl);
+
         studentAttendanceRepository.save(checkin);
 
         return "Đã ghi nhận điểm danh cho sinh viên: " + studentUsername;

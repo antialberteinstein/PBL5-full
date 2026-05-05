@@ -21,4 +21,11 @@ public class AdminCreateUserRequest {
      * Giá trị truyền lên sẽ là: "TEACHER" hoặc "STUDENT"
      */
     private String role;
+
+    /**
+     * Mã định danh dùng chung (Mã số):
+     * - Nếu role = "STUDENT" -> Hệ thống tự hiểu đây là MSSV.
+     * - Nếu role = "TEACHER" -> Hệ thống tự hiểu đây là MSGV.
+     */
+    private String code;
 }
