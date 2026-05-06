@@ -6,4 +6,5 @@ import lombok.Data;
 public class TeacherCheckinRequest {
     private String studentUsername;
     private String checkinTime;
+    private String imageUrl;
 }

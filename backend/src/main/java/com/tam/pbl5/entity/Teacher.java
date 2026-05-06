@@ -13,4 +13,7 @@ public class Teacher {
 
     @Column(length = 50)
     private String username;
+
+    @Column(name = "msgv", nullable = false, unique = true) // ✨ Khớp với database
+    private String msgv;
 }

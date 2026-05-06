@@ -17,4 +17,7 @@ public class Attendance {
 
     @Column(name = "class_id")
     private Integer classId;
+
+    @Column(name = "image_url")
+    private String imageUrl;
 }

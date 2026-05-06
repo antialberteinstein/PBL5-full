@@ -5,5 +5,5 @@ import lombok.Data;
 @Data
 public class TeacherAddStudentRequest {
     private Integer classId;
-    private String studentUsername;
+    private String mssv; // ✨ Đổi từ studentUsername sang mssv
 }

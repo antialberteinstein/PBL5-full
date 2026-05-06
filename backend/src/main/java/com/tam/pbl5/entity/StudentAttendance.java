@@ -21,4 +21,7 @@ public class StudentAttendance {
 
     @Column(name = "checkin_time")
     private LocalDateTime checkInTime;
+
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
 }

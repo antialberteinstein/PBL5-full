@@ -14,6 +14,9 @@ public class Student {
     @Column(length = 50)
     private String username;
 
+    @Column(name = "mssv", nullable = false, unique = true)
+    private String mssv;
+
     @Column(name = "face_registered")
     private boolean faceRegistered;
 }

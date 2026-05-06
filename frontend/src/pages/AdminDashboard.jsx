@@ -16,6 +16,7 @@ const AdminDashboard = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newUser, setNewUser] = useState({
     username: "",
+    code: "", // ✨ ĐÃ THÊM: Mã định danh
     password: "",
     email: "",
     fullName: "",
@@ -45,8 +46,10 @@ const AdminDashboard = () => {
       await adminAPI.createUser(newUser);
       alert("Tạo tài khoản thành công!");
       setShowCreateModal(false);
+      // ✨ ĐÃ THÊM: Reset trường code
       setNewUser({
         username: "",
+        code: "",
         password: "",
         email: "",
         fullName: "",
@@ -185,7 +188,7 @@ const AdminDashboard = () => {
       {/* --- MODAL 1: TẠO TÀI KHOẢN --- */}
       {showCreateModal && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-96 p-6">
+          <div className="bg-white rounded-lg shadow-xl w-[28rem] p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-4">
               Tạo tài khoản mới
             </h2>
@@ -204,6 +207,24 @@ const AdminDashboard = () => {
                   }
                 />
               </div>
+
+              {/* ✨ ĐÃ THÊM: Ô nhập mã định danh */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Mã định danh (MSSV/MSGV)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: 102210123"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  value={newUser.code}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, code: e.target.value })
+                  }
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Mật khẩu
@@ -259,7 +280,6 @@ const AdminDashboard = () => {
                 >
                   <option value="STUDENT">Sinh viên</option>
                   <option value="TEACHER">Giáo viên</option>
-                  <option value="ADMIN">Admin</option>
                 </select>
               </div>
 
@@ -291,6 +311,17 @@ const AdminDashboard = () => {
             <h2 className="text-xl font-bold text-gray-800 mb-4">
               Nhập danh sách tài khoản từ Excel
             </h2>
+
+            {/* ✨ ĐÃ THÊM: Ghi chú nhắc nhở cấu trúc cột */}
+            <div className="mb-4 text-xs text-gray-600 bg-blue-50 p-3 rounded border border-blue-100">
+              <p className="font-bold mb-1">
+                📌 Lưu ý cấu trúc cột (Từ trái sang phải):
+              </p>
+              <p>
+                Cột A: Username | Cột B: Mã số (MSSV/MSGV) | Cột C: Password |
+                Cột D: Email | Cột E: Họ Tên | Cột F: Role (STUDENT/TEACHER)
+              </p>
+            </div>
 
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center bg-gray-50 mb-4">
               <input

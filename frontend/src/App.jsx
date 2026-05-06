@@ -16,7 +16,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 // ✨ THÊM MỚI Ở ĐÂY: Import 2 trang quan trọng còn thiếu
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import FaceRegistration from "./pages/FaceRegistration.jsx";
-
+import Profile from "./pages/Profile";
 function App() {
   return (
     <Router>
