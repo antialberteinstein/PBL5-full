@@ -48,10 +48,23 @@ def main():
     dataset_path = os.path.join(ROOT_DIR, config['dataset_train_path'])
     print(f"Loading dataset from: {dataset_path}")
     
-    # InsightFace transforms
+    # InsightFace transforms với aggressive augmentation để chống overfit trên dataset nhỏ
     transform = transforms.Compose([
-        transforms.Resize((112, 112)),
-        transforms.RandomHorizontalFlip(),
+        transforms.Resize((128, 128)),              # Resize lớn hơn để crop ngẫu nhiên
+        transforms.RandomCrop((112, 112)),          # Random crop để tạo đa dạng vùng ảnh
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ColorJitter(                     # Biến đổi màu sắc ngẫu nhiên (ánh sáng, tương phản, màu sắc)
+            brightness=0.3,
+            contrast=0.3,
+            saturation=0.2,
+            hue=0.05
+        ),
+        transforms.RandomGrayscale(p=0.05),        # 5% ảnh đổi thành đen trắng (tăng robustness)
+        transforms.RandomAffine(                   # Xoay nhẹ và dịch chuyển
+            degrees=10,
+            translate=(0.05, 0.05),
+            scale=(0.9, 1.1)
+        ),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
@@ -76,14 +89,12 @@ def main():
     print(f"Loading pretrained weights from {model_path}...")
     state_dict = torch.load(model_path, map_location='cpu')
     backbone.load_state_dict(state_dict, strict=False)
-    print("✅ Pretrained weights loaded.")
-
     # 3. Gắn LoRA
     if config.get('use_lora', True):
         lora_config = LoraConfig(
             r=config['lora_r'],
             lora_alpha=config.get('lora_alpha', 16),
-            target_modules=r".*conv.*", 
+            target_modules=config.get('lora_target_modules', ["fc"]), 
             lora_dropout=config.get('lora_dropout', 0.05),
             bias="none",
         )
@@ -130,21 +141,68 @@ def main():
     total_step = len(train_loader) * epochs
     warmup_step = len(train_loader) * config.get('warmup_epoch', 0)
 
-    lr_scheduler = PolynomialLRWarmup(
-        optimizer=optimizer,
-        warmup_iters=warmup_step,
-        total_iters=total_step
+    # Dùng CosineAnnealingWarmRestarts để LR dao động theo chu kỳ (giúp thoát khỏi điểm saddle tốt hơn)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=len(train_loader) * 5,   # Restart sau mỗi 5 epoch
+        T_mult=1,
+        eta_min=1e-6
     )
 
-    # 6. Vòng lặp huấn luyện
+    # === 6. CLASS CENTER INITIALIZATION ===
+    amp = torch.cuda.amp.grad_scaler.GradScaler(enabled=config.get('fp16', False)) if torch.cuda.is_available() else None
+    
+    # Khởi tạo trọng số phân loại (module_partial_fc.weight) bằng Mean Embeddings của Pretrained Backbone
+    # Điều này tránh việc PartialFC khởi tạo ngẫu nhiên gây sốc gradient phá hỏng backbone
+    print("\nKhởi tạo Class Centers từ Pretrained Backbone để tránh sốc Gradient...")
+    backbone.eval()
+    class_centers = torch.zeros(num_classes, config.get('embedding_size', 512), device=device)
+    class_counts = torch.zeros(num_classes, device=device)
+    
+    with torch.no_grad():
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+            if amp is not None and torch.cuda.is_available():
+                with torch.cuda.amp.autocast():
+                    embeddings = backbone(images)
+            else:
+                embeddings = backbone(images)
+            
+            for i in range(len(labels)):
+                class_centers[labels[i]] += embeddings[i]
+                class_counts[labels[i]] += 1
+                
+    # Tính trung bình và chuẩn hóa
+    for i in range(num_classes):
+        if class_counts[i] > 0:
+            class_centers[i] /= class_counts[i]
+            class_centers[i] = torch.nn.functional.normalize(class_centers[i], p=2, dim=0)
+            
+    # Gán vào PartialFC
+    module_partial_fc.weight.data = class_centers
+    print("✅ Đã đồng bộ không gian Vector từ Pretrained sang Classifier Head.")
+
+    # 7. Vòng lặp huấn luyện
     print(f"\n🚀 Bắt đầu huấn luyện InsightFace Pipeline ({epochs} Epochs)...")
     
-    amp = torch.cuda.amp.grad_scaler.GradScaler(enabled=config.get('fp16', False)) if torch.cuda.is_available() else None
     loss_am = AverageMeter()
     global_step = 0
 
+    head_warmup_epochs = config.get('head_warmup_epochs', 2)
+
     for epoch in range(1, epochs + 1):
-        backbone.train()
+        is_warmup = epoch <= head_warmup_epochs
+        if is_warmup:
+            backbone.eval()
+            if epoch == 1:
+                print(f"⚠️ [WARMUP] Đóng băng Backbone trong {head_warmup_epochs} epoch đầu để hội tụ Head.")
+        else:
+            backbone.train()
+            # Bắt buộc đóng băng BatchNorm để tránh hỏng pretrained weights khi finetune trên dataset nhỏ
+            for module in backbone.modules():
+                if isinstance(module, torch.nn.BatchNorm2d) or isinstance(module, torch.nn.BatchNorm1d):
+                    module.eval()
+            
         module_partial_fc.train()
         
         start_time = time.time()
@@ -153,23 +211,38 @@ def main():
             images, labels = images.to(device), labels.to(device)
             
             optimizer.zero_grad()
-
+            
             if amp is not None and torch.cuda.is_available():
                 with torch.cuda.amp.autocast():
-                    embeddings = backbone(images)
+                    if is_warmup:
+                        with torch.no_grad():
+                            embeddings = backbone(images)
+                    else:
+                        embeddings = backbone(images)
+                        
                     loss = module_partial_fc(embeddings, labels)
+                    
                 amp.scale(loss).backward()
-                torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
+                if not is_warmup:
+                    torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
                 amp.step(optimizer)
                 amp.update()
             else:
-                embeddings = backbone(images)
+                if is_warmup:
+                    with torch.no_grad():
+                        embeddings = backbone(images)
+                else:
+                    embeddings = backbone(images)
+                    
                 loss = module_partial_fc(embeddings, labels)
+                
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
+                if not is_warmup:
+                    torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
                 optimizer.step()
 
-            lr_scheduler.step()
+            # CosineAnnealingWarmRestarts cần step(epoch + i/len(loader)) để mượt mà
+            lr_scheduler.step(epoch - 1 + i / len(train_loader))
             loss_am.update(loss.item(), 1)
             
             if global_step % config.get('verbose', 10) == 0:
