@@ -42,7 +42,7 @@ def _to_list(value: Any) -> Any:
 def serialize_face_result(face: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "bbox": _to_list(face.get("bbox")),
-        "class_id": face.get("class_id"),
+        "student_id": face.get("student_id"),
         "score": face.get("score"),
         "pose": _to_list(face.get("pose")),
         "pose_name": face.get("pose_name"),

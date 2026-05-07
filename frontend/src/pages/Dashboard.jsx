@@ -98,23 +98,7 @@ const Dashboard = () => {
       alert("Không tìm thấy tên đăng nhập. Vui lòng đăng nhập lại.");
       return;
     }
-
-    try {
-      setFaceRegistering(true);
-      setFaceError("");
-      setFaceResult("");
-
-      await studentAPI.registerLocalFace(currentUsername);
-      await studentAPI.markFaceRegistered(true);
-      setFaceRegistered(true);
-      setFaceResult("Đăng ký khuôn mặt thành công.");
-    } catch (error) {
-      setFaceError(
-        error.response?.data || "Không thể kết nối dịch vụ nhận diện khuôn mặt",
-      );
-    } finally {
-      setFaceRegistering(false);
-    }
+    navigate("/register-face");
   };
 
   return (

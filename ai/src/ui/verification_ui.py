@@ -27,6 +27,7 @@ class VerificationUI:
         on_frame=None,
         emit_interval_sec: float = 2.0,
         stop_event=None,
+        allowed_student_ids_ref=None,
     ):
         """
         Initialize Verification UI.
@@ -43,6 +44,7 @@ class VerificationUI:
         self.on_frame = on_frame
         self.emit_interval_sec = emit_interval_sec
         self.stop_event = stop_event
+        self.allowed_student_ids_ref = allowed_student_ids_ref
         self._last_emit = {}
 
     def run(self, camera: Any, show_ui: bool = True) -> None:
@@ -64,7 +66,11 @@ class VerificationUI:
                 if self._latest_frame is not None:
                     frame_copy = self._latest_frame.copy()
                     try:
-                        results = self.service.verify(frame_copy)
+                        allowed_ids = None
+                        if self.allowed_student_ids_ref is not None:
+                            with self.allowed_student_ids_ref["lock"]:
+                                allowed_ids = list(self.allowed_student_ids_ref["values"])
+                        results = self.service.verify(frame_copy, allowed_student_ids=allowed_ids)
                         with self._results_lock:
                             self._latest_results = results
                     except Exception as e:
@@ -90,6 +96,8 @@ class VerificationUI:
             with self._results_lock:
                 results_copy = self._latest_results.copy()
 
+            frame_for_emit = frame.copy()
+
             if self.on_frame is not None:
                 try:
                     self.on_frame(frame, results_copy)
@@ -100,15 +108,15 @@ class VerificationUI:
                 self._draw_result(frame, res)
                     
                 if res["is_known"]:
-                    camera.send_result(f"MATCH: {res['class_id']} ({res['score']:.2f})")
+                    camera.send_result(f"MATCH: {res['student_id']} ({res['score']:.2f})")
                     if self.on_match is not None:
-                        class_id = res.get("class_id")
+                        student_id = res.get("student_id")
                         now = time.time()
-                        last_emit = self._last_emit.get(class_id, 0.0)
+                        last_emit = self._last_emit.get(student_id, 0.0)
                         if now - last_emit >= self.emit_interval_sec:
-                            self._last_emit[class_id] = now
+                            self._last_emit[student_id] = now
                             try:
-                                self.on_match(class_id, res.get("score"))
+                                self.on_match(student_id, res.get("score"), frame_for_emit)
                             except Exception as e:
                                 logging.error("on_match callback failed: %s", e)
             
@@ -144,7 +152,7 @@ class VerificationUI:
             score_str = "N/A"
         else:
             score_str = f"{score_val:.2f}" if score_val != float('inf') else "inf"
-        text = f"{res['class_id']}: {score_str}" if res["is_known"] else f"UNKNOWN: {score_str}"
+        text = f"{res['student_id']}: {score_str}" if res["is_known"] else f"UNKNOWN: {score_str}"
         cv2.putText(frame, text, (box[0], box[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
         # Draw Liveness Info

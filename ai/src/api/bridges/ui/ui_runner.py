@@ -53,22 +53,24 @@ def run_ui_loop(
         try:
             if task.task_type == UITaskType.REGISTER:
                 ui = RegistrationUI(registration_recog_pipeline, classify_pipeline)
-                ui.run(task.params["class_id"], camera)
+                student_id = task.params["student_id"]
+                ui.run(student_id, camera)
 
                 task.result = {
                     "status": "completed" if ui.service.is_complete else "incomplete",
-                    "class_id": task.params["class_id"],
+                    "student_id": student_id,
                     "total_collected": ui.service.total_collected,
                     "max_required": ui.service.max_registration_images,
                 }
 
             elif task.task_type == UITaskType.UPDATE:
                 ui = UpdateFaceUI(registration_recog_pipeline, classify_pipeline)
-                ui.run(task.params["class_id"], camera)
+                student_id = task.params["student_id"]
+                ui.run(student_id, camera)
 
                 task.result = {
                     "status": "completed" if ui.service.is_complete else "incomplete",
-                    "class_id": task.params["class_id"],
+                    "student_id": student_id,
                     "total_collected": ui.service.total_collected_session,
                     "max_required": ui.service.max_update_images,
                 }
@@ -81,6 +83,7 @@ def run_ui_loop(
                     on_match=task.params.get("on_match"),
                     on_frame=task.params.get("on_frame"),
                     stop_event=task.params.get("stop_event"),
+                    allowed_student_ids_ref=task.params.get("allowed_student_ids_ref"),
                 )
                 ui.run(camera, show_ui=task.params.get("show_ui", True))
 

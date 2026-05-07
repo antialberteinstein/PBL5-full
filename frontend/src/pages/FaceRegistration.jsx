@@ -11,6 +11,8 @@ const FaceRegistration = () => {
   const [errorMsg, setErrorMsg] = useState("");
   const [instruction, setInstruction] = useState("Chuẩn bị camera...");
   const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState("0/15");
+  const [currentPose, setCurrentPose] = useState("");
 
   // Tham chiếu (Refs) tới các thẻ HTML
   const videoRef = useRef(null);
@@ -75,20 +77,31 @@ const FaceRegistration = () => {
     setErrorMsg("");
 
     const faceBase = import.meta.env.VITE_FACE_API_BASE || "http://127.0.0.1:8000";
-    const wsUrl = `${faceBase.replace(/^http/, "ws").replace(/\/$/, "")}/ws/register_stream?class_id=${currentUsername}`;
+    const wsUrl = `${faceBase.replace(/^http/, "ws").replace(/\/$/, "")}/ws/register_stream?student_id=${currentUsername}`;
     
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
 
     socket.onopen = () => {
+      console.info("[register_stream] WebSocket opened");
       setStatus("REGISTERING");
-      // Bắt đầu vòng lặp chụp ảnh 4 lần/giây gửi cho Python
-      captureIntervalRef.current = setInterval(captureAndSendFrame, 250);
+      // Bắt đầu vòng lặp chụp ảnh ~2.5 lần/giây gửi cho Python
+      captureIntervalRef.current = setInterval(captureAndSendFrame, 400);
     };
 
     socket.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.progress_text || data.total_collected !== undefined) {
+          console.info(
+            "[register_stream] progress",
+            data.progress_text || `${data.total_collected}/${data.total_required}`,
+            "status=",
+            data.status,
+            "pose=",
+            data.req_pose,
+          );
+        }
 
         // Xử lý thông báo từ AI
         if (data.status === "ALREADY_REGISTERED") {
@@ -102,6 +115,9 @@ const FaceRegistration = () => {
           setStatus("COMPLETE");
           setInstruction("Tuyệt vời! Đã thu thập đủ dữ liệu.");
           setProgress(100);
+          if (data.progress_text) {
+            setProgressText(data.progress_text);
+          }
           stopCameraAndSocket();
           
           // Báo cho Spring Boot (Backend) là sinh viên này đã có mặt
@@ -118,6 +134,11 @@ const FaceRegistration = () => {
         if (data.total_required && data.total_collected !== undefined) {
           const percent = Math.round((data.total_collected / data.total_required) * 100);
           setProgress(percent);
+          setProgressText(`${data.total_collected}/${data.total_required}`);
+        }
+
+        if (data.progress_text) {
+          setProgressText(data.progress_text);
         }
 
         // Hiện hướng dẫn góc mặt
@@ -133,18 +154,29 @@ const FaceRegistration = () => {
           }
         }
 
+        if (data.det_pose) {
+          setCurrentPose(data.det_pose);
+        }
+
       } catch (err) {
         console.error("Lỗi khi đọc tin nhắn từ AI:", err);
       }
     };
 
     socket.onerror = () => {
+      console.error("[register_stream] WebSocket error");
       setStatus("ERROR");
       setErrorMsg("Mất kết nối với máy chủ AI. Vui lòng thử lại.");
       stopCameraAndSocket();
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
+      console.warn(
+        "[register_stream] WebSocket closed",
+        `code=${event.code}`,
+        `reason=${event.reason}`,
+        `wasClean=${event.wasClean}`,
+      );
       if (status !== "COMPLETE") {
         clearInterval(captureIntervalRef.current);
       }
@@ -161,11 +193,11 @@ const FaceRegistration = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
-    // Lấy kích thước thật của video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Giảm kích thước frame để tối ưu tốc độ gửi
+    canvas.width = 112;
+    canvas.height = 112;
     
-    // Vẽ khung hình từ video lên canvas
+    // Vẽ khung hình từ video lên canvas (tự scale)
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     // Chuyển Canvas thành Blob (JPG) và gửi thẳng đi
@@ -231,7 +263,7 @@ const FaceRegistration = () => {
         <canvas ref={canvasRef} className="hidden"></canvas>
 
         {/* Bảng Trạng Thái & Hướng dẫn */}
-        <div className={`w-full py-3 px-4 rounded-lg text-center font-semibold text-sm mb-6 transition-colors duration-300 ${
+        <div className={`w-full py-3 px-4 rounded-lg text-center font-semibold text-sm mb-3 transition-colors duration-300 ${
           status === "ERROR" ? "bg-red-50 text-red-600 border border-red-200" :
           status === "COMPLETE" ? "bg-green-50 text-green-700 border border-green-200" :
           status === "REGISTERING" ? "bg-indigo-50 text-indigo-700 border border-indigo-200" :
@@ -240,12 +272,18 @@ const FaceRegistration = () => {
           {errorMsg || instruction}
         </div>
 
+        {status === "REGISTERING" && currentPose && (
+          <div className="w-full mb-6 text-center text-xs font-semibold text-gray-600">
+            Pose hiện tại: <span className="text-indigo-600">{currentPose}</span>
+          </div>
+        )}
+
         {/* Thanh Tiến Độ */}
         {(status === "REGISTERING" || status === "COMPLETE") && (
           <div className="w-full mb-6">
             <div className="flex justify-between text-xs font-bold text-gray-500 mb-1">
               <span>Tiến độ thu thập</span>
-              <span>{progress}%</span>
+              <span>{progressText} ({progress}%)</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
               <div 

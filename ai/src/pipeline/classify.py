@@ -8,7 +8,7 @@ This ensures a unified, streamlined process for embedding transformations
 during validation and registration.
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Sequence
 import numpy as np
 
 from classify.preprocessing import PCAProcessor, ScalerProcessor
@@ -63,7 +63,11 @@ class ClassificationPipeline:
             return processed.flatten()
         return processed
         
-    def predict_with_score(self, raw_embedding: np.ndarray) -> Tuple[Optional[str], float]:
+    def predict_with_score(
+        self,
+        raw_embedding: np.ndarray,
+        allowed_student_ids: Optional[Sequence[str]] = None,
+    ) -> Tuple[Optional[str], float]:
         """
         Predicts the class ID and cosine distance score directly from a raw embedding.
         
@@ -71,18 +75,21 @@ class ClassificationPipeline:
             raw_embedding: Raw 512D Numpy array from InsightFace
             
         Returns:
-            Tuple of containing the (class_id, score)
+            Tuple of containing the (student_id, score)
         """
         processed_emb = self.transform(raw_embedding)
 
-        return self.classifier.predict_with_score(processed_emb)
+        return self.classifier.predict_with_score(
+            processed_emb,
+            allowed_student_ids=allowed_student_ids,
+        )
 
-    def fit(self, class_id: str, raw_embeddings: List[np.ndarray]) -> None:
+    def fit(self, student_id: str, raw_embeddings: List[np.ndarray]) -> None:
         """
         Transforms raw feature embeddings and saves them as a new class in the DB.
         
         Args:
-            class_id: The label for the entity being inserted
+            student_id: The label for the entity being inserted
             raw_embeddings: A list of Numpy Arrays (from recog.face_recognition)
         """
 
@@ -93,4 +100,4 @@ class ClassificationPipeline:
         processed_embs = self.transform(emb_array)
         
         # Classifier.fit will handle adding these to the Milvus DB
-        self.classifier.fit(class_id, processed_embs)
+        self.classifier.fit(student_id, processed_embs)

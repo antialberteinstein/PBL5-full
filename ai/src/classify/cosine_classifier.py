@@ -10,7 +10,7 @@ Uses Milvus Lite natively for ultra-fast vectorized cosine similarity search.
 import os
 import logging
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Sequence
 from pymilvus import MilvusClient, DataType
 
 
@@ -69,7 +69,7 @@ class CosineClassifier:
         
         # Add fields
         schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
-        schema.add_field(field_name="class_id", datatype=DataType.VARCHAR, max_length=256)
+        schema.add_field(field_name="student_id", datatype=DataType.VARCHAR, max_length=256)
         schema.add_field(
             field_name="embedding",
             datatype=DataType.FLOAT_VECTOR,
@@ -93,13 +93,13 @@ class CosineClassifier:
         
         logging.info(f"Created collection '{self.collection_name}' with dimension {dim}")
 
-    def fit(self, class_id: str, embeddings: np.ndarray) -> None:
+    def fit(self, student_id: str, embeddings: np.ndarray) -> None:
         """
         Fit classifier with new embeddings for a class.
         Inserts directly into Milvus without duplicate-checking logic for performance.
         
         Args:
-            class_id: Class identifier
+            student_id: Student identifier
             embeddings: Embeddings array (N x D)
         """
         if len(embeddings) == 0:
@@ -115,7 +115,7 @@ class CosineClassifier:
             # Normalize embedding for cosine similarity using IP metric
             normalized_emb = embedding / np.linalg.norm(embedding)
             data.append({
-                "class_id": class_id,
+                "student_id": student_id,
                 "embedding": normalized_emb.tolist(),
             })
         
@@ -125,9 +125,9 @@ class CosineClassifier:
             data=data,
         )
         
-        logging.info(f"Fitted class '{class_id}' with {len(embeddings)} new embeddings")
+        logging.info(f"Fitted student '{student_id}' with {len(embeddings)} new embeddings")
     
-    def predict(self, embedding: np.ndarray) -> str:
+    def predict(self, embedding: np.ndarray, allowed_student_ids: Optional[Sequence[str]] = None) -> str:
         """
         Predict class for an embedding using Milvus's native IP distance.
         
@@ -139,10 +139,25 @@ class CosineClassifier:
         Returns:
             Predicted class label (str), or UNKNOWN if no match
         """
-        class_id, _ = self.predict_with_score(embedding)
-        return class_id if class_id is not None else UNKNOWN
+        student_id, _ = self.predict_with_score(embedding, allowed_student_ids=allowed_student_ids)
+        return student_id if student_id is not None else UNKNOWN
     
-    def predict_with_score(self, embedding: np.ndarray) -> Tuple[Optional[str], Optional[float]]:
+    def _build_filter_expr(self, allowed_student_ids: Sequence[str]) -> str:
+        safe_values = []
+        for value in allowed_student_ids:
+            if value is None:
+                continue
+            safe_values.append(str(value).replace("\"", "\\\""))
+        if not safe_values:
+            return ""
+        quoted = ", ".join([f'"{val}"' for val in safe_values])
+        return f"student_id in [{quoted}]"
+
+    def predict_with_score(
+        self,
+        embedding: np.ndarray,
+        allowed_student_ids: Optional[Sequence[str]] = None,
+    ) -> Tuple[Optional[str], Optional[float]]:
         """
         Predict class with similarity score using vector search natively.
         
@@ -150,7 +165,7 @@ class CosineClassifier:
             embedding: Query embedding (D,)
             
         Returns:
-            Tuple of (class_id, similarity_score) or (None, None) if no match
+            Tuple of (student_id, similarity_score) or (None, None) if no match
         """
         # Quick check to avoid searching if db hasn't been initialized
         if not self.client.has_collection(self.collection_name):
@@ -161,12 +176,19 @@ class CosineClassifier:
         
         try:
             # Native Milvus search returns the most similar vectors instantly!
-            results = self.client.search(
-                collection_name=self.collection_name,
-                data=[normalized_emb.tolist()],
-                limit=1,
-                output_fields=["class_id"]
-            )
+            search_kwargs = {
+                "collection_name": self.collection_name,
+                "data": [normalized_emb.tolist()],
+                "limit": 1,
+                "output_fields": ["student_id"],
+            }
+            if allowed_student_ids is not None:
+                filter_expr = self._build_filter_expr(allowed_student_ids)
+                if not filter_expr:
+                    return None, None
+                search_kwargs["filter"] = filter_expr
+
+            results = self.client.search(**search_kwargs)
         except Exception as e:
             logging.error(f"Search failed: {e}")
             return None, None
@@ -177,21 +199,21 @@ class CosineClassifier:
             
         # hit definition
         hit = results[0][0]
-        best_class = hit["entity"]["class_id"]
+        best_student = hit["entity"]["student_id"]
         best_similarity = hit["distance"]  # IP measurement acts precisely as Cosine similarity here!
         
         # Check threshold
         if best_similarity < self.verification_threshold:
             return None, best_similarity
         
-        return best_class, best_similarity
+        return best_student, best_similarity
         
-    def get_vectors_by_id(self, class_id: str) -> np.ndarray:
+    def get_vectors_by_id(self, student_id: str) -> np.ndarray:
         """
         Retrieve all vectors for a given class ID.
         
         Args:
-            class_id: Class identifier
+            student_id: Student identifier
             
         Returns:
             Array of vectors (N x D), or empty array if no vectors found
@@ -202,7 +224,7 @@ class CosineClassifier:
         try:
             results = self.client.query(
                 collection_name=self.collection_name,
-                filter=f'class_id == "{class_id}"',
+                filter=f'student_id == "{student_id}"',
                 output_fields=["embedding"],
             )
         except Exception as e:

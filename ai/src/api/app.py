@@ -29,13 +29,8 @@ from api.bridges.service.pipeline_bridge import (
     get_registration_pipelines,
     get_verification_pipelines,
 )
-from api.routes.local import register as register_routes
-from api.routes.local import update as update_routes
-from api.routes.local import verify as verify_routes
 from api.routes.local import verify_stream as verify_stream_local_routes
 from api.routes.stream import register_stream as register_stream_routes
-from api.routes.stream import update_stream as update_stream_routes
-from api.routes.stream import verify_stream as verify_stream_routes
 
 
 @asynccontextmanager
@@ -58,13 +53,8 @@ app.add_middleware(
 )
 
 
-app.include_router(register_routes.router)
-app.include_router(update_routes.router)
-app.include_router(verify_routes.router)
 app.include_router(verify_stream_local_routes.router)
 app.include_router(register_stream_routes.router)
-app.include_router(update_stream_routes.router)
-app.include_router(verify_stream_routes.router)
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
@@ -75,7 +65,13 @@ def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     server_thread = threading.Thread(
         target=uvicorn.run,
         args=("api.app:app",),
-        kwargs={"host": host, "port": port, "log_level": "info"},
+        kwargs={
+            "host": host,
+            "port": port,
+            "log_level": "info",
+            "ws_ping_interval": 30,
+            "ws_ping_timeout": 60,
+        },
         daemon=True,
     )
     server_thread.start()

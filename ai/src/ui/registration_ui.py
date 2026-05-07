@@ -40,11 +40,11 @@ class RegistrationUI:
         self.color_success = color_success
         self.color_failure = color_failure
 
-    def run(self, class_id: str, camera: Any) -> None:
+    def run(self, student_id: str, camera: Any) -> None:
         """Runs the registration UI loop via Background Thread."""
         import threading
         
-        logging.info(f"Starting registration for class ID: {class_id} via Background Thread")
+        logging.info(f"Starting registration for student ID: {student_id} via Background Thread")
         
         self._stop_event = threading.Event()
         self._latest_frame = None
@@ -81,7 +81,7 @@ class RegistrationUI:
                                 logging.warning(f"Face already registered as {db_id}!")
                                 last_warning_time = current_time
                         elif not is_complete:
-                            res = self.service.process_face_sample(class_id, frame_raw, main_face)
+                            res = self.service.process_face_sample(student_id, frame_raw, main_face)
                             is_complete = self.service.is_complete
                             
                             if res["status"] == "NOT_DIVERSE":
@@ -90,7 +90,7 @@ class RegistrationUI:
                                     last_hint_time = time.time()
                         
                         if is_complete and not self._ui_state["is_complete"]:
-                            self.service.save(class_id)
+                            self.service.save(student_id)
                             logging.info("Registration complete!")
                     
                     with self._state_lock:

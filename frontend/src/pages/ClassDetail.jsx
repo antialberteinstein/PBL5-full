@@ -22,8 +22,10 @@ const ClassDetail = () => {
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSessions, setAttendanceSessions] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [liveFrameUrl, setLiveFrameUrl] = useState("");
 
   const verifySocketRef = useRef(null);
+  const liveFrameUrlRef = useRef(null);
   const currentUsername = localStorage.getItem("username") || "";
 
   // Các State để quản lý Import Excel
@@ -104,6 +106,10 @@ const ClassDetail = () => {
         verifySocketRef.current.close();
         verifySocketRef.current = null;
       }
+      if (liveFrameUrlRef.current) {
+        URL.revokeObjectURL(liveFrameUrlRef.current);
+        liveFrameUrlRef.current = null;
+      }
     };
   }, []);
 
@@ -139,42 +145,70 @@ const ClassDetail = () => {
 
       const faceBase =
         import.meta.env.VITE_FACE_API_BASE || "http://127.0.0.1:8000";
-      const wsUrl = `${faceBase.replace(/^http/, "ws").replace(/\/$/, "")}/ws/verify`;
+      const wsUrl = `${faceBase.replace(/^http/, "ws").replace(/\/$/, "")}/ws/verify_stream_local`;
       const socket = new WebSocket(wsUrl);
+      socket.binaryType = "arraybuffer";
       verifySocketRef.current = socket;
 
-      socket.onopen = () => setAttendanceRunning(true);
+      socket.onopen = () => {
+        setAttendanceRunning(true);
+        const studentIds = students.map((sv) => sv.username).filter(Boolean);
+        socket.send(JSON.stringify({ type: "allowlist", student_ids: studentIds }));
+      };
       socket.onmessage = async (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (data?.status === "completed") {
-            setAttendanceRunning(false);
+          if (typeof event.data === "string") {
+            const data = JSON.parse(event.data);
+            if (data?.status === "completed") {
+              setAttendanceRunning(false);
+              return;
+            }
+
+            if (data?.type === "frame") {
+              if (verifySocketRef.current?.readyState === WebSocket.OPEN) {
+                verifySocketRef.current.send(
+                  JSON.stringify({ type: "ok", frame_id: data.frame_id }),
+                );
+              }
+            }
+
+            if (data?.type === "match") {
+              if (!data?.student_id || !newAttendanceId) return;
+
+              await attendanceAPI.teacherCheckin(newAttendanceId, {
+                studentUsername: data.student_id,
+                checkinTime: data.checkin_time,
+                imageUrl: data.image_url,
+              });
+
+              const checkinTime = data.checkin_time
+                ? new Date(data.checkin_time)
+                : new Date();
+              const timeLabel = checkinTime.toLocaleTimeString("vi-VN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+
+              setStudents((prev) =>
+                prev.map((sv) =>
+                  sv.username === data.student_id
+                    ? { ...sv, status: "PRESENT", time: timeLabel }
+                    : sv,
+                ),
+              );
+            }
             return;
           }
-          if (!data?.class_id || !newAttendanceId) return;
 
-          // ✨ CẬP NHẬT: Gửi kèm link ảnh AI chụp về Backend
-          await attendanceAPI.teacherCheckin(newAttendanceId, {
-            studentUsername: data.class_id,
-            checkinTime: data.checkin_time,
-            imageUrl: data.image_url, // Link ảnh từ Python gửi qua WebSocket
-          });
-
-          const checkinTime = data.checkin_time
-            ? new Date(data.checkin_time)
-            : new Date();
-          const timeLabel = checkinTime.toLocaleTimeString("vi-VN", {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-
-          setStudents((prev) =>
-            prev.map((sv) =>
-              sv.username === data.class_id
-                ? { ...sv, status: "PRESENT", time: timeLabel }
-                : sv,
-            ),
-          );
+          if (event.data instanceof ArrayBuffer) {
+            const blob = new Blob([event.data], { type: "image/jpeg" });
+            const nextUrl = URL.createObjectURL(blob);
+            if (liveFrameUrlRef.current) {
+              URL.revokeObjectURL(liveFrameUrlRef.current);
+            }
+            liveFrameUrlRef.current = nextUrl;
+            setLiveFrameUrl(nextUrl);
+          }
         } catch (error) {
           console.error("Lỗi nhận dữ liệu verify:", error);
         }
@@ -194,10 +228,18 @@ const ClassDetail = () => {
 
   const handleStopAttendance = () => {
     if (verifySocketRef.current) {
+      if (verifySocketRef.current.readyState === WebSocket.OPEN) {
+        verifySocketRef.current.send(JSON.stringify({ type: "stop" }));
+      }
       verifySocketRef.current.close();
       verifySocketRef.current = null;
     }
     setAttendanceRunning(false);
+    if (liveFrameUrlRef.current) {
+      URL.revokeObjectURL(liveFrameUrlRef.current);
+      liveFrameUrlRef.current = null;
+    }
+    setLiveFrameUrl("");
   };
 
   const handleManualCheckin = async (studentUsername) => {
@@ -232,21 +274,7 @@ const ClassDetail = () => {
 
   const handleRegisterFace = async () => {
     if (!currentUsername) return alert("Không tìm thấy tên đăng nhập.");
-    try {
-      setFaceRegistering(true);
-      setFaceError("");
-      setFaceResult("");
-      await studentAPI.registerLocalFace(currentUsername);
-      await studentAPI.markFaceRegistered(true);
-      setFaceRegistered(true);
-      setFaceResult("Đăng ký khuôn mặt thành công.");
-    } catch (error) {
-      setFaceError(
-        error.response?.data || "Không thể kết nối dịch vụ nhận diện",
-      );
-    } finally {
-      setFaceRegistering(false);
-    }
+    navigate("/register-face");
   };
 
   const handleImportExcel = async (e) => {
@@ -360,7 +388,27 @@ const ClassDetail = () => {
 
             {/* TAB 1: LIVE */}
             {isTeacher && activeTab === "live" && (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              <div className="space-y-4">
+                <div className="bg-white rounded-lg border p-4">
+                  <div className="text-sm font-semibold text-gray-700 mb-3">
+                    Live từ AI
+                  </div>
+                  <div className="w-full aspect-video bg-gray-100 rounded-md overflow-hidden border">
+                    {liveFrameUrl ? (
+                      <img
+                        src={liveFrameUrl}
+                        alt="AI live"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+                        Chưa có tín hiệu hình ảnh
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {students.map((sv, index) => (
                   <div
                     key={index}
@@ -391,6 +439,7 @@ const ClassDetail = () => {
                     )}
                   </div>
                 ))}
+                </div>
               </div>
             )}
 

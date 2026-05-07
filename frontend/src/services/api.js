@@ -88,8 +88,6 @@ export const studentAPI = {
   joinClass: (data) => api.post("/student/join", data),
   quitClass: (classId) => api.delete(`/student/quit/${classId}`),
   checkin: (data) => api.post("/attendance/checkin", data),
-  registerLocalFace: (username) =>
-    faceApi.post("/register", { class_id: username }),
   verifyLocalFace: (signal) => faceApi.post("/verify", {}, { signal }),
   markFaceRegistered: (registered = true) =>
     api.put("/student-class/face-registered", null, { params: { registered } }),

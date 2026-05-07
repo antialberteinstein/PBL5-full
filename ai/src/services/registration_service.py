@@ -59,12 +59,12 @@ class RegistrationService:
         faces = self.recog_pipeline.process_frame(frame)
         main_face = next((f for f in faces if np.array_equal(f.bbox, box)), None)
         if main_face:
-            class_id, _ = self.classify_pipeline.predict_with_score(main_face.embedding)
-            if class_id is not None and "UNKNOWN" not in str(class_id):
-                return class_id
+            student_id, _ = self.classify_pipeline.predict_with_score(main_face.embedding)
+            if student_id is not None and "UNKNOWN" not in str(student_id):
+                return student_id
         return None
         
-    def process_face_sample(self, class_id: str, frame_raw: np.ndarray, face: Any) -> Dict[str, Any]:
+    def process_face_sample(self, student_id: str, frame_raw: np.ndarray, face: Any) -> Dict[str, Any]:
         """
         Processes a single face detection for registration pose requirements.
         """
@@ -81,7 +81,7 @@ class RegistrationService:
             if not self.is_same_person(face.embedding, curr_pose):
                 result["status"] = "DIFFERENT_PERSON"
             elif self.is_diverse(face.embedding):
-                self.collect_sample(class_id, frame_raw, face, curr_pose)
+                self.collect_sample(student_id, frame_raw, face, curr_pose)
                 result["status"] = "COLLECTED"
             else:
                 result["status"] = "NOT_DIVERSE"
@@ -160,7 +160,7 @@ class RegistrationService:
         self.total_collected += 1
         return True
 
-    def collect_sample(self, class_id: str, frame_raw: np.ndarray, face: Any, pose: str) -> None:
+    def collect_sample(self, student_id: str, frame_raw: np.ndarray, face: Any, pose: str) -> None:
         """Helper to collect and save a single sample."""
         masked_frame = add_virtual_mask(frame_raw, face)
         masked_detections = self.recog_pipeline.recognizer.detect(masked_frame)
@@ -169,14 +169,14 @@ class RegistrationService:
         self.add_sample(face.embedding, masked_emb)
         
         if debug_config.SAVE_DEBUG_IMAGES:
-            self._save_debug(class_id, frame_raw, face.bbox, pose, masked_frame, masked_detections)
+            self._save_debug(student_id, frame_raw, face.bbox, pose, masked_frame, masked_detections)
             
         self.pose_counts[pose] += 1
         if self.pose_counts[pose] >= self.images_per_pose:
             self.increment_pose()
 
-    def _save_debug(self, class_id: str, frame: np.ndarray, box: np.ndarray, pose: str, masked_frame: np.ndarray, masked_detections: Any) -> None:
-        class_dir = os.path.join(debug_config.DEBUG_IMAGES_DIR, class_id)
+    def _save_debug(self, student_id: str, frame: np.ndarray, box: np.ndarray, pose: str, masked_frame: np.ndarray, masked_detections: Any) -> None:
+        class_dir = os.path.join(debug_config.DEBUG_IMAGES_DIR, student_id)
         os.makedirs(class_dir, exist_ok=True)
         x1, y1, x2, y2 = box.astype(int)
         pad = 20
@@ -193,9 +193,9 @@ class RegistrationService:
         """Move to the next pose."""
         self.current_pose_idx += 1
 
-    def save(self, class_id: str) -> None:
+    def save(self, student_id: str) -> None:
         """Save collected embeddings to the database."""
         raw_embeddings = [emb for emb_list in self.embeddings_by_pose.values() for emb in emb_list]
         if raw_embeddings:
-            self.classify_pipeline.fit(class_id, raw_embeddings)
-            logging.info(f"Saved {len(raw_embeddings)} embeddings for '{class_id}'")
+            self.classify_pipeline.fit(student_id, raw_embeddings)
+            logging.info(f"Saved {len(raw_embeddings)} embeddings for '{student_id}'")

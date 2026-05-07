@@ -5,7 +5,7 @@
 Business logic for face verification with anti-spoofing integration.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Sequence
 import numpy as np
 from utils.bbox_utils import calculate_iou, deepface_to_standard_bbox
 
@@ -30,12 +30,16 @@ class VerificationService:
         self.classify_pipeline = classify_pipeline
         self.anti_spoofing_pipeline = anti_spoofing_pipeline
     
-    def verify(self, frame: np.ndarray) -> List[Dict[str, Any]]:
+    def verify(
+        self,
+        frame: np.ndarray,
+        allowed_student_ids: Optional[Sequence[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Verify faces in a frame and check for spoofing attacks.
         
         Returns:
-            List of dicts containing bbox, class_id, score, is_known, and liveness info.
+            List of dicts containing bbox, student_id, score, is_known, and liveness info.
         """
         # 1. Primary face recognition
         faces = self.recog_pipeline.process_frame(frame)
@@ -48,8 +52,11 @@ class VerificationService:
         results = []
         for face in faces:
             # Classification
-            class_id, score = self.classify_pipeline.predict_with_score(face.embedding)
-            is_known = class_id is not None and "UNKNOWN" not in str(class_id)
+            student_id, score = self.classify_pipeline.predict_with_score(
+                face.embedding,
+                allowed_student_ids=allowed_student_ids,
+            )
+            is_known = student_id is not None and "UNKNOWN" not in str(student_id)
             
             # Match with anti-spoofing results using IoU
             is_real = True  # Default to True if no anti-spoofing or no match
@@ -74,7 +81,7 @@ class VerificationService:
             
             results.append({
                 "bbox": face.bbox,
-                "class_id": class_id,
+                "student_id": student_id,
                 "score": score,
                 "is_known": is_known,
                 "is_real": is_real,

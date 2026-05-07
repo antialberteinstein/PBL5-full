@@ -53,7 +53,7 @@ class UpdateFaceService:
     def detect_faces(self, frame: np.ndarray) -> List[Any]:
         return self.recog_pipeline.recognizer.detect(frame)
         
-    def process_face_sample(self, class_id: str, frame_raw: np.ndarray, face: Any) -> dict:
+    def process_face_sample(self, student_id: str, frame_raw: np.ndarray, face: Any) -> dict:
         curr_pose = self.current_pose
         det_pose = get_pose_name(face.pose)
         
@@ -67,16 +67,16 @@ class UpdateFaceService:
             if not self.is_same_person(face.embedding, curr_pose):
                 result["status"] = "DIFFERENT_PERSON"
             elif self.is_diverse(face.embedding):
-                self.collect_sample(class_id, frame_raw, face, curr_pose)
+                self.collect_sample(student_id, frame_raw, face, curr_pose)
                 result["status"] = "COLLECTED"
             else:
                 result["status"] = "NOT_DIVERSE"
                 
         return result
 
-    def load_existing_vectors(self, class_id: str) -> None:
+    def load_existing_vectors(self, student_id: str) -> None:
         """Loads existing vectors from DB for diversity checking."""
-        db_vectors_array = self.classify_pipeline.classifier.get_vectors_by_id(class_id)
+        db_vectors_array = self.classify_pipeline.classifier.get_vectors_by_id(student_id)
         self._existing_db_list = [db_vectors_array[i] for i in range(len(db_vectors_array))] if len(db_vectors_array) > 0 else []
 
     @property
@@ -154,7 +154,7 @@ class UpdateFaceService:
                 self.embeddings_by_pose[curr_pose].append(masked_embedding)
             self.total_collected_session += 1
 
-    def collect_sample(self, class_id: str, frame_raw: np.ndarray, face: Any, pose: str) -> None:
+    def collect_sample(self, student_id: str, frame_raw: np.ndarray, face: Any, pose: str) -> None:
         """Helper to collect and save a single sample."""
         masked_frame = add_virtual_mask(frame_raw, face)
         masked_detections = self.recog_pipeline.recognizer.detect(masked_frame)
@@ -163,14 +163,14 @@ class UpdateFaceService:
         self.add_sample(face.embedding, masked_emb)
         
         if debug_config.SAVE_DEBUG_IMAGES:
-            self._save_debug(class_id, frame_raw, face.bbox, pose, masked_frame, masked_detections)
+            self._save_debug(student_id, frame_raw, face.bbox, pose, masked_frame, masked_detections)
             
         self.pose_counts[pose] += 1
         if self.pose_counts[pose] >= self.images_per_pose:
             self.increment_pose()
 
-    def _save_debug(self, class_id: str, frame: np.ndarray, box: np.ndarray, pose: str, masked_frame: np.ndarray, masked_detections: Any) -> None:
-        class_dir = os.path.join(debug_config.DEBUG_IMAGES_DIR, class_id)
+    def _save_debug(self, student_id: str, frame: np.ndarray, box: np.ndarray, pose: str, masked_frame: np.ndarray, masked_detections: Any) -> None:
+        class_dir = os.path.join(debug_config.DEBUG_IMAGES_DIR, student_id)
         os.makedirs(class_dir, exist_ok=True)
         x1, y1, x2, y2 = box.astype(int)
         pad = 20
@@ -186,8 +186,8 @@ class UpdateFaceService:
     def increment_pose(self) -> None:
         self.current_pose_idx += 1
 
-    def save(self, class_id: str) -> None:
+    def save(self, student_id: str) -> None:
         raw_embeddings = [emb for emb_list in self.embeddings_by_pose.values() for emb in emb_list]
         if raw_embeddings:
-            self.classify_pipeline.fit(class_id, raw_embeddings)
-            logging.info(f"Appended {len(raw_embeddings)} embeddings for '{class_id}'")
+            self.classify_pipeline.fit(student_id, raw_embeddings)
+            logging.info(f"Appended {len(raw_embeddings)} embeddings for '{student_id}'")

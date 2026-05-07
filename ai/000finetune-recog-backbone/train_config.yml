@@ -7,10 +7,10 @@ save_dir: "models/finetuned"
 
 # --- Training Hyperparameters ---
 batch_size: 64
-epochs: 30 # Cần 30 epoch cho 2 chu kỳ Cosine đầy đủ (mỗi chu kỳ T_0=5 epoch)
+epochs: 17 # 3 chu kỳ Cosine (T_0=5): 2 warmup + 5+5+5 training cycles
 head_warmup_epochs: 2 
-learning_rate: 0.001 # LR cao hơn để Cosine có đủ phạm vi dao động từ 0.001 -> 1e-6
-weight_decay: 0.005 
+learning_rate: 0.0003 # 3e-4: điểm giữa giữa 1e-4 (underfit) và 1e-3 (overfit/forget)
+weight_decay: 0.01   # Tăng để bù regularization từ augmentation đã bỏ
 optimizer: "adamw" 
 num_workers: 0 
 fp16: true 
@@ -18,10 +18,10 @@ gradient_acc: 1
 
 # --- LoRA Hyperparameters ---
 use_lora: true
-lora_r: 16 # r=16: đủ sức chứa mà không gây overfit (r=64 đã gây sụt lfw xuống 0.942)
-lora_alpha: 32 
-lora_dropout: 0.15 # Tăng nhẹ dropout để regularization tốt hơn khi dùng r=16
-lora_target_modules: ".*conv.*|.*fc" # Mở rộng LoRA tối đa với class center initialization
+lora_r: 24          # Tăng capacity để học được nhiều hơn
+lora_alpha: 48      # alpha/r = 2x
+lora_dropout: 0.1
+lora_target_modules: ".*conv.*" # Tất cả conv layers (stem + layer1-4), không target fc
 
 # --- ArcFace / CosFace Margin Head (PartialFC) ---
 embedding_size: 512

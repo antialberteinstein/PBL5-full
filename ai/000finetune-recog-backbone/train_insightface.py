@@ -48,23 +48,10 @@ def main():
     dataset_path = os.path.join(ROOT_DIR, config['dataset_train_path'])
     print(f"Loading dataset from: {dataset_path}")
     
-    # InsightFace transforms với aggressive augmentation để chống overfit trên dataset nhỏ
+    # InsightFace standard transform — không augmentation
     transform = transforms.Compose([
-        transforms.Resize((128, 128)),              # Resize lớn hơn để crop ngẫu nhiên
-        transforms.RandomCrop((112, 112)),          # Random crop để tạo đa dạng vùng ảnh
+        transforms.Resize((112, 112)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.ColorJitter(                     # Biến đổi màu sắc ngẫu nhiên (ánh sáng, tương phản, màu sắc)
-            brightness=0.3,
-            contrast=0.3,
-            saturation=0.2,
-            hue=0.05
-        ),
-        transforms.RandomGrayscale(p=0.05),        # 5% ảnh đổi thành đen trắng (tăng robustness)
-        transforms.RandomAffine(                   # Xoay nhẹ và dịch chuyển
-            degrees=10,
-            translate=(0.05, 0.05),
-            scale=(0.9, 1.1)
-        ),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
