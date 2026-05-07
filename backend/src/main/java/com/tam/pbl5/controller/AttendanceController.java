@@ -3,6 +3,7 @@ package com.tam.pbl5.controller;
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
 import com.tam.pbl5.dto.request.TeacherCheckinRequest;
 import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
+import com.tam.pbl5.dto.response.TeacherCheckinResponse;
 import com.tam.pbl5.entity.Attendance;
 import com.tam.pbl5.entity.Student;
 import com.tam.pbl5.service.AttendanceService;
@@ -129,14 +130,14 @@ public class AttendanceController {
             @RequestBody TeacherCheckinRequest request,
             @RequestHeader("Authorization") String token) {
         try {
-            String message = attendanceService.teacherCheckin(
+            TeacherCheckinResponse response = attendanceService.teacherCheckin(
                     attendanceId,
                     request.getStudentUsername(),
                     request.getCheckinTime(),
                     request.getImageUrl(),
                     token
             );
-            return ResponseEntity.ok(message);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

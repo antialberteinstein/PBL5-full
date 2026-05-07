@@ -60,6 +60,16 @@ public class ClazzService {
         return clazzRepository.save(newClass);
     }
 
+    public Clazz getClassById(Integer classId, String token) {
+        if (token != null && token.startsWith("Bearer ")) {
+            token = token.substring(7);
+        }
+        jwtService.extractUsername(token);
+
+        return clazzRepository.findById(classId)
+                .orElseThrow(() -> new RuntimeException("Lỗi: Lớp học không tồn tại!"));
+    }
+
 
 
     public List<Student> getApprovedStudentsInClass(Integer classId, String token) {

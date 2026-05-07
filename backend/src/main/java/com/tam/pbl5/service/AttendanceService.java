@@ -2,15 +2,23 @@ package com.tam.pbl5.service;
 
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
 import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
+import com.tam.pbl5.dto.response.TeacherCheckinResponse;
 import com.tam.pbl5.entity.*;
 import com.tam.pbl5.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,6 +33,52 @@ public class AttendanceService {
     private final StudentAttendanceRepository studentAttendanceRepository;
     private final JwtService jwtService;
     private final UserRepository userRepository;
+
+    private static final Pattern DATA_IMAGE_PATTERN =
+            Pattern.compile("^data:image/(jpeg|jpg|png);base64,(.+)$", Pattern.CASE_INSENSITIVE);
+    private static final int MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+    private static final Path UPLOAD_ROOT = Path.of(System.getProperty("user.home"), "pbl5", "upload");
+
+    private String saveAttendanceImage(String imageData) {
+        if (imageData == null || imageData.isBlank()) {
+            return null;
+        }
+
+        if (imageData.startsWith("/uploads/")) {
+            return imageData;
+        }
+
+        Matcher matcher = DATA_IMAGE_PATTERN.matcher(imageData);
+        if (!matcher.matches()) {
+            throw new RuntimeException("Lỗi: Ảnh điểm danh phải là data URL JPEG/PNG hợp lệ.");
+        }
+
+        String extension = "png".equalsIgnoreCase(matcher.group(1)) ? "png" : "jpg";
+        byte[] imageBytes;
+        try {
+            imageBytes = Base64.getDecoder().decode(matcher.group(2));
+        } catch (IllegalArgumentException exc) {
+            throw new RuntimeException("Lỗi: Dữ liệu ảnh điểm danh không hợp lệ.");
+        }
+
+        if (imageBytes.length == 0 || imageBytes.length > MAX_IMAGE_BYTES) {
+            throw new RuntimeException("Lỗi: Ảnh điểm danh vượt quá dung lượng cho phép.");
+        }
+
+        try {
+            Path attendanceDir = UPLOAD_ROOT.resolve("attendance");
+            Files.createDirectories(attendanceDir);
+
+            String filename = UUID.randomUUID() + "." + extension;
+            Path destination = attendanceDir.resolve(filename);
+            Files.write(destination, imageBytes);
+
+            return "/uploads/attendance/" + filename;
+        } catch (IOException exc) {
+            throw new RuntimeException("Lỗi: Không thể lưu ảnh điểm danh lên server.");
+        }
+    }
+
     // ==========================================
     // 1. GIÁO VIÊN TẠO BUỔI ĐIỂM DANH
     // ==========================================
@@ -123,8 +177,7 @@ public class AttendanceService {
         checkin.setStudentId(student.getId());
         checkin.setCheckInTime(LocalDateTime.now());
 
-        // Lưu ảnh do AI chụp xuống DB
-        checkin.setImageUrl(imageUrl);
+        checkin.setImageUrl(saveAttendanceImage(imageUrl));
 
         studentAttendanceRepository.save(checkin);
 
@@ -276,11 +329,11 @@ public class AttendanceService {
     // 6. GIÁO VIÊN GHI NHẬN ĐIỂM DANH TỪ VERIFY (ĐÃ NÂNG CẤP)
     // ==========================================
     @Transactional
-    public String teacherCheckin(
+    public TeacherCheckinResponse teacherCheckin(
             Integer attendanceId,
             String studentUsername,
             String checkinTime,
-            String imageUrl, // ✨ ĐÃ THÊM HỨNG LINK ẢNH
+            String imageUrl,
             String token
     ) {
         if (token != null && token.startsWith("Bearer ")) {
@@ -315,7 +368,10 @@ public class AttendanceService {
         }
 
         if (studentAttendanceRepository.existsByAttendanceIdAndStudentId(attendanceId, student.getId())) {
-            return "Sinh viên " + studentUsername + " đã được điểm danh trước đó.";
+            return new TeacherCheckinResponse(
+                    "Sinh viên " + studentUsername + " đã được điểm danh trước đó.",
+                    null
+            );
         }
 
         LocalDateTime checkinAt = LocalDateTime.now();
@@ -332,11 +388,14 @@ public class AttendanceService {
         checkin.setStudentId(student.getId());
         checkin.setCheckInTime(checkinAt);
 
-        // ✨ ĐÃ THÊM LƯU ẢNH (Cho phép null nếu là điểm danh tay)
-        checkin.setImageUrl(imageUrl);
+        String storedImageUrl = saveAttendanceImage(imageUrl);
+        checkin.setImageUrl(storedImageUrl);
 
         studentAttendanceRepository.save(checkin);
 
-        return "Đã ghi nhận điểm danh cho sinh viên: " + studentUsername;
+        return new TeacherCheckinResponse(
+                "Đã ghi nhận điểm danh cho sinh viên: " + studentUsername,
+                storedImageUrl
+        );
     }
 }

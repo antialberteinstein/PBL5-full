@@ -146,6 +146,7 @@ CREATE TABLE `student_attendance` (
   `attendance_id` int(11) NOT NULL,
   `student_id` int(11) NOT NULL,
   `checkin_time` datetime(6) DEFAULT NULL,
+  `image_url` varchar(500) DEFAULT NULL,
   `id` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 

@@ -70,6 +70,7 @@ CREATE TABLE student_attendance (
   attendance_id INT,
   student_id INT,
   checkin_time DATETIME,
+  image_url VARCHAR(500),
   FOREIGN KEY (attendance_id) REFERENCES attendance(id),
   FOREIGN KEY (student_id) REFERENCES student(id)
 );

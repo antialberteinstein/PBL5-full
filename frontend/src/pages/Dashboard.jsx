@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import api, { studentAPI } from "../services/api.js";
+import api, { classAPI, studentAPI } from "../services/api.js";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -19,6 +19,12 @@ const Dashboard = () => {
   const [faceError, setFaceError] = useState("");
   const [faceResult, setFaceResult] = useState("");
   const [faceRegistered, setFaceRegistered] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinClassId, setJoinClassId] = useState("");
+  const [joinClassPreview, setJoinClassPreview] = useState(null);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinError, setJoinError] = useState("");
+  const [joinResult, setJoinResult] = useState("");
 
   const currentUsername = localStorage.getItem("username") || "";
 
@@ -101,6 +107,55 @@ const Dashboard = () => {
     navigate("/register-face");
   };
 
+  const resetJoinModal = () => {
+    setShowJoinModal(false);
+    setJoinClassId("");
+    setJoinClassPreview(null);
+    setJoinError("");
+    setJoinResult("");
+    setJoinLoading(false);
+  };
+
+  const handleFindJoinClass = async (e) => {
+    e.preventDefault();
+    const parsedClassId = Number(joinClassId);
+    if (!Number.isInteger(parsedClassId) || parsedClassId <= 0) {
+      setJoinError("Vui lòng nhập ID lớp hợp lệ.");
+      return;
+    }
+
+    try {
+      setJoinLoading(true);
+      setJoinError("");
+      setJoinResult("");
+      const response = await classAPI.getClassById(parsedClassId);
+      setJoinClassPreview(response.data);
+    } catch (error) {
+      setJoinClassPreview(null);
+      setJoinError(error.response?.data || "Không tìm thấy lớp học.");
+    } finally {
+      setJoinLoading(false);
+    }
+  };
+
+  const handleConfirmJoinClass = async () => {
+    if (!joinClassPreview?.id) return;
+
+    try {
+      setJoinLoading(true);
+      setJoinError("");
+      const response = await studentAPI.joinClass({ classId: joinClassPreview.id });
+      setJoinResult(response.data);
+      setJoinClassPreview(null);
+      setJoinClassId("");
+      fetchClasses();
+    } catch (error) {
+      setJoinError(error.response?.data || "Không thể gửi yêu cầu tham gia lớp.");
+    } finally {
+      setJoinLoading(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 font-sans relative">
       {/* SIDEBAR */}
@@ -171,7 +226,10 @@ const Dashboard = () => {
                     Đã đăng ký khuôn mặt
                   </div>
                 )}
-                <button className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-100 shadow-sm transition">
+                <button
+                  onClick={() => setShowJoinModal(true)}
+                  className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-100 shadow-sm transition"
+                >
                   + Xin tham gia lớp
                 </button>
               </div>
@@ -280,6 +338,115 @@ const Dashboard = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showJoinModal && (
+        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-96 p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">
+              Xin tham gia lớp
+            </h2>
+
+            {joinResult ? (
+              <div>
+                <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2 mb-5">
+                  {joinResult}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={resetJoinModal}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition"
+                  >
+                    OK
+                  </button>
+                </div>
+              </div>
+            ) : joinClassPreview ? (
+              <div>
+                <p className="text-sm text-gray-700 mb-2">
+                  Bạn có muốn tham gia lớp{" "}
+                  <span className="font-bold text-gray-900">
+                    {joinClassPreview.name}
+                  </span>{" "}
+                  không?
+                </p>
+                <p className="text-xs text-gray-500 mb-5">
+                  ID Lớp: #{joinClassPreview.id}
+                </p>
+
+                {joinError && (
+                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">
+                    {joinError}
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => {
+                      setJoinClassPreview(null);
+                      setJoinError("");
+                    }}
+                    disabled={joinLoading}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition disabled:opacity-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    onClick={handleConfirmJoinClass}
+                    disabled={joinLoading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition disabled:opacity-50"
+                  >
+                    {joinLoading ? "Đang gửi..." : "OK"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleFindJoinClass}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    ID lớp
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={joinClassId}
+                    onChange={(e) => {
+                      setJoinClassId(e.target.value);
+                      setJoinError("");
+                    }}
+                    placeholder="Nhập ID lớp"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {joinError && (
+                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">
+                    {joinError}
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={resetJoinModal}
+                    disabled={joinLoading}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition disabled:opacity-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={joinLoading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition disabled:opacity-50"
+                  >
+                    {joinLoading ? "Đang tìm..." : "Tiếp tục"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

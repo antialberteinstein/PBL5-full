@@ -82,6 +82,26 @@ def _encode_image_url(frame) -> str | None:
         return None
 
 
+def _draw_success_notice(frame, student_id: str, score: float | None) -> None:
+    score_text = "" if score is None else f" ({score:.2f})"
+    message = f"Check-in success: {student_id}{score_text}"
+    _, width = frame.shape[:2]
+    padding = 16
+    box_height = 54
+
+    cv2.rectangle(frame, (0, 0), (width, box_height), (0, 150, 0), -1)
+    cv2.putText(
+        frame,
+        message,
+        (padding, 35),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.85,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+
 @router.websocket("/ws/verify_stream_local")
 async def verify_stream_local(websocket: WebSocket) -> None:
     await websocket.accept()
@@ -124,7 +144,11 @@ async def verify_stream_local(websocket: WebSocket) -> None:
             stop_event.set()
 
     def on_match(student_id: str, score: float | None, frame=None) -> None:
-        image_url = _encode_image_url(frame) if frame is not None else None
+        success_frame = None
+        if frame is not None:
+            success_frame = frame.copy()
+            _draw_success_notice(success_frame, student_id, score)
+        image_url = _encode_image_url(success_frame) if success_frame is not None else None
         payload = {
             "type": "match",
             "student_id": student_id,

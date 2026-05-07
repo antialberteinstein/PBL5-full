@@ -23,10 +23,89 @@ const ClassDetail = () => {
   const [attendanceSessions, setAttendanceSessions] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [liveFrameUrl, setLiveFrameUrl] = useState("");
+  const [pendingStudents, setPendingStudents] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingError, setPendingError] = useState("");
+  const [pendingActionMssv, setPendingActionMssv] = useState("");
+  const [previewImage, setPreviewImage] = useState(null);
 
   const verifySocketRef = useRef(null);
   const liveFrameUrlRef = useRef(null);
   const currentUsername = localStorage.getItem("username") || "";
+
+  const formatAttendanceTime = (value) => {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) {
+      return new Date().toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+    return date.toLocaleTimeString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const buildAttendedStudent = (studentUsername, checkinTime, imageUrl) => {
+    const matchedStudent = students.find((sv) => sv.username === studentUsername);
+    return {
+      mssv: matchedStudent?.id || studentUsername,
+      fullName: matchedStudent?.name || studentUsername,
+      username: studentUsername,
+      checkinTime,
+      imageUrl: imageUrl || null,
+    };
+  };
+
+  const resolveAttendanceImageUrl = (imageUrl) => {
+    if (!imageUrl) return "";
+    if (/^https?:\/\//i.test(imageUrl) || imageUrl.startsWith("data:")) {
+      return imageUrl;
+    }
+    if (imageUrl.startsWith("/uploads/")) {
+      return `http://localhost:8080${imageUrl}`;
+    }
+    return imageUrl;
+  };
+
+  const upsertHistoryStudent = (attendanceId, datetime, attendedStudent) => {
+    setAttendanceSessions((prev) => {
+      const nextStudent = {
+        ...attendedStudent,
+        imageUrl: attendedStudent.imageUrl || null,
+      };
+      const existingSession = prev.find((session) => session.id === attendanceId);
+
+      if (!existingSession) {
+        return [
+          {
+            id: attendanceId,
+            datetime,
+            students: [nextStudent],
+            open: false,
+          },
+          ...prev,
+        ];
+      }
+
+      return prev.map((session) => {
+        if (session.id !== attendanceId) return session;
+
+        const studentsWithoutDuplicate = session.students.filter(
+          (sv) =>
+            sv.username !== nextStudent.username &&
+            sv.mssv !== nextStudent.mssv,
+        );
+
+        return {
+          ...session,
+          datetime: session.datetime || datetime,
+          students: [...studentsWithoutDuplicate, nextStudent],
+        };
+      });
+    });
+  };
 
   // Các State để quản lý Import Excel
   const [showImportModal, setShowImportModal] = useState(false);
@@ -57,6 +136,37 @@ const ClassDetail = () => {
   useEffect(() => {
     fetchStudents();
   }, [classId]);
+
+  const fetchPendingStudents = async () => {
+    if (!isTeacher) return;
+
+    try {
+      setPendingLoading(true);
+      setPendingError("");
+      const response = await classAPI.getJoinRequests(classId);
+      const requests = (response.data || []).map((sv) => ({
+        id: sv.mssv || sv.username || sv.id,
+        mssv: sv.mssv,
+        username: sv.username,
+        name: sv.fullName || sv.username || "Chưa cập nhật tên",
+        faceRegistered: Boolean(sv.faceRegistered),
+      }));
+      setPendingStudents(requests);
+    } catch (error) {
+      setPendingStudents([]);
+      setPendingError(
+        error.response?.data || "Không thể tải danh sách chờ duyệt.",
+      );
+    } finally {
+      setPendingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isTeacher && activeTab === "pending") {
+      fetchPendingStudents();
+    }
+  }, [isTeacher, classId, activeTab]);
 
   useEffect(() => {
     const fetchAttendanceHistory = async () => {
@@ -141,6 +251,7 @@ const ClassDetail = () => {
         datetime: new Date().toISOString(),
       });
       const newAttendanceId = response.data.id;
+      const newAttendanceDatetime = response.data.datetime || new Date().toISOString();
       setCurrentAttendanceId(newAttendanceId);
 
       const faceBase =
@@ -175,25 +286,30 @@ const ClassDetail = () => {
             if (data?.type === "match") {
               if (!data?.student_id || !newAttendanceId) return;
 
-              await attendanceAPI.teacherCheckin(newAttendanceId, {
+              const checkinResponse = await attendanceAPI.teacherCheckin(newAttendanceId, {
                 studentUsername: data.student_id,
                 checkinTime: data.checkin_time,
                 imageUrl: data.image_url,
               });
+              const storedImageUrl = checkinResponse.data?.imageUrl || null;
 
-              const checkinTime = data.checkin_time
-                ? new Date(data.checkin_time)
-                : new Date();
-              const timeLabel = checkinTime.toLocaleTimeString("vi-VN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
+              const timeLabel = formatAttendanceTime(data.checkin_time);
 
               setStudents((prev) =>
                 prev.map((sv) =>
                   sv.username === data.student_id
                     ? { ...sv, status: "PRESENT", time: timeLabel }
                     : sv,
+                ),
+              );
+
+              upsertHistoryStudent(
+                newAttendanceId,
+                newAttendanceDatetime,
+                buildAttendedStudent(
+                  data.student_id,
+                  data.checkin_time || new Date().toISOString(),
+                  storedImageUrl,
                 ),
               );
             }
@@ -249,23 +365,27 @@ const ClassDetail = () => {
     }
 
     try {
+      const checkinTime = new Date().toISOString();
       // ✨ CẬP NHẬT: Điểm danh tay thì imageUrl truyền null
       await attendanceAPI.teacherCheckin(currentAttendanceId, {
         studentUsername: studentUsername,
-        checkinTime: new Date().toISOString(),
+        checkinTime,
         imageUrl: null,
       });
 
-      const timeLabel = new Date().toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const timeLabel = formatAttendanceTime(checkinTime);
       setStudents((prev) =>
         prev.map((sv) =>
           sv.username === studentUsername
             ? { ...sv, status: "PRESENT", time: timeLabel }
             : sv,
         ),
+      );
+
+      upsertHistoryStudent(
+        currentAttendanceId,
+        new Date().toISOString(),
+        buildAttendedStudent(studentUsername, checkinTime, null),
       );
     } catch (error) {
       alert("Lỗi: " + (error.response?.data || "Không thể điểm danh bằng tay"));
@@ -275,6 +395,40 @@ const ClassDetail = () => {
   const handleRegisterFace = async () => {
     if (!currentUsername) return alert("Không tìm thấy tên đăng nhập.");
     navigate("/register-face");
+  };
+
+  const handleApproveRequest = async (student) => {
+    if (!student?.mssv) {
+      alert("Không tìm thấy MSSV của sinh viên.");
+      return;
+    }
+
+    try {
+      setPendingActionMssv(student.mssv);
+      await classAPI.approveRequest(parseInt(classId), student.mssv);
+      await Promise.all([fetchPendingStudents(), fetchStudents()]);
+    } catch (error) {
+      setPendingError(error.response?.data || "Không thể duyệt sinh viên.");
+    } finally {
+      setPendingActionMssv("");
+    }
+  };
+
+  const handleRejectRequest = async (student) => {
+    if (!student?.mssv) {
+      alert("Không tìm thấy MSSV của sinh viên.");
+      return;
+    }
+
+    try {
+      setPendingActionMssv(student.mssv);
+      await classAPI.rejectRequest(parseInt(classId), student.mssv);
+      await fetchPendingStudents();
+    } catch (error) {
+      setPendingError(error.response?.data || "Không thể từ chối sinh viên.");
+    } finally {
+      setPendingActionMssv("");
+    }
   };
 
   const handleImportExcel = async (e) => {
@@ -364,6 +518,14 @@ const ClassDetail = () => {
           >
             👥 Danh sách lớp
           </button>
+          {isTeacher && (
+            <button
+              onClick={() => setActiveTab("pending")}
+              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "pending" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
+            >
+              ⏳ Chờ duyệt
+            </button>
+          )}
           <button
             onClick={() => setActiveTab("history")}
             className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "history" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
@@ -481,6 +643,85 @@ const ClassDetail = () => {
               </div>
             )}
 
+            {/* TAB 3: CHỜ DUYỆT */}
+            {isTeacher && activeTab === "pending" && (
+              <div className="bg-white rounded-lg border overflow-hidden">
+                {pendingError && (
+                  <div className="m-4 bg-red-50 border border-red-200 text-red-600 rounded-md px-4 py-3 text-sm">
+                    {pendingError}
+                  </div>
+                )}
+
+                {pendingLoading ? (
+                  <div className="py-12 text-center text-sm text-gray-500">
+                    Đang tải danh sách chờ duyệt...
+                  </div>
+                ) : pendingStudents.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-gray-500">
+                    Chưa có sinh viên nào đang chờ duyệt.
+                  </div>
+                ) : (
+                  <table className="min-w-full divide-y">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          MSSV
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Tài khoản
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Mặt
+                        </th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                          Thao tác
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {pendingStudents.map((sv) => {
+                        const isProcessing = pendingActionMssv === sv.mssv;
+
+                        return (
+                          <tr key={sv.mssv || sv.username || sv.id}>
+                            <td className="px-6 py-4 text-sm font-semibold">
+                              {sv.id}
+                            </td>
+                            <td className="px-6 py-4 text-sm">{sv.name}</td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`px-2 py-1 text-xs font-bold rounded-full ${sv.faceRegistered ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                              >
+                                {sv.faceRegistered ? "Đã ĐK" : "Chưa"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => handleRejectRequest(sv)}
+                                  disabled={Boolean(pendingActionMssv)}
+                                  className="px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-white hover:bg-red-50 rounded-md transition disabled:opacity-50"
+                                >
+                                  Từ chối
+                                </button>
+                                <button
+                                  onClick={() => handleApproveRequest(sv)}
+                                  disabled={Boolean(pendingActionMssv)}
+                                  className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition disabled:opacity-50"
+                                >
+                                  {isProcessing ? "Đang xử lý..." : "Duyệt"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
             {/* TAB 3: LỊCH SỬ (ĐÃ CẬP NHẬT CỘT ẢNH) */}
             {activeTab === "history" && (
               <div className="space-y-4">
@@ -534,11 +775,22 @@ const ClassDetail = () => {
                                 <td className="px-4 py-2 text-center">
                                   {/* ✨ HIỂN THỊ ẢNH TỪ AI HOẶC CHỮ ĐIỂM DANH TAY */}
                                   {sv.imageUrl ? (
-                                    <img
-                                      src={sv.imageUrl}
-                                      alt="AI Checkin"
-                                      className="w-12 h-12 object-cover rounded-md mx-auto border"
-                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPreviewImage({
+                                          src: resolveAttendanceImageUrl(sv.imageUrl),
+                                          title: sv.fullName || sv.mssv || "Ảnh điểm danh",
+                                        })
+                                      }
+                                      className="block mx-auto rounded-md border focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                      <img
+                                        src={resolveAttendanceImageUrl(sv.imageUrl)}
+                                        alt="AI Checkin"
+                                        className="w-12 h-12 object-cover rounded-md"
+                                      />
+                                    </button>
                                   ) : (
                                     <span className="text-[10px] italic text-gray-400 bg-gray-50 px-2 py-1 rounded">
                                       Điểm danh tay
@@ -587,6 +839,39 @@ const ClassDetail = () => {
               >
                 {importing ? "Đang xử lý..." : "Bắt đầu"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewImage && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <p className="text-sm font-semibold text-gray-800 truncate">
+                {previewImage.title}
+              </p>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition"
+                aria-label="Đóng ảnh phóng to"
+              >
+                X
+              </button>
+            </div>
+            <div className="bg-gray-100 p-4 flex items-center justify-center">
+              <img
+                src={previewImage.src}
+                alt={previewImage.title}
+                className="max-w-full max-h-[75vh] object-contain rounded-md"
+              />
             </div>
           </div>
         </div>

@@ -34,6 +34,18 @@ public class ClazzController {
         }
     }
 
+    @GetMapping("/{classId}")
+    public ResponseEntity<?> getClassById(
+            @PathVariable Integer classId,
+            @RequestHeader("Authorization") String token) {
+        try {
+            Clazz clazz = clazzService.getClassById(classId, token);
+            return ResponseEntity.ok(clazz);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     // ==========================================
     // 2. API Xem danh sách sinh viên chính thức của lớp
     // ==========================================

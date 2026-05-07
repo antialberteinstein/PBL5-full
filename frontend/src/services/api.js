@@ -67,11 +67,12 @@ export const classAPI = {
   getStudents: (classId) => api.get(`/classes/${classId}/students`),
   removeStudent: (classId, studentUsername) =>
     api.delete(`/classes/${classId}/students/${studentUsername}`),
-  getJoinRequests: (classId) => api.get(`/classes/${classId}/requests`),
-  approveRequest: (classId, studentUsername) =>
-    api.put(`/classes/${classId}/requests/${studentUsername}/approve`),
-  rejectRequest: (classId, studentUsername) =>
-    api.put(`/classes/${classId}/requests/${studentUsername}/reject`),
+  getJoinRequests: (classId) =>
+    api.get(`/teacher-class/${classId}/pending-students`),
+  approveRequest: (classId, mssv) =>
+    api.post("/teacher-class/approve-student", { classId, mssv }),
+  rejectRequest: (classId, mssv) =>
+    api.post("/teacher-class/reject-student", { classId, mssv }),
 
   // ✨ THÊM MỚI Ở ĐÂY: API Cho Giáo viên Import danh sách sinh viên từ Excel
   /** POST /api/teacher-class/:classId/import-students */
@@ -85,7 +86,7 @@ export const classAPI = {
 // STUDENT ACTIONS
 // ════════════════════════════════════════════════════════════════════════════
 export const studentAPI = {
-  joinClass: (data) => api.post("/student/join", data),
+  joinClass: (data) => api.post("/student-class/join", data),
   quitClass: (classId) => api.delete(`/student/quit/${classId}`),
   checkin: (data) => api.post("/attendance/checkin", data),
   verifyLocalFace: (signal) => faceApi.post("/verify", {}, { signal }),
