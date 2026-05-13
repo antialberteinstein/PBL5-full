@@ -34,7 +34,7 @@ class CosineClassifier:
     
     def __init__(
         self,
-        verification_threshold: float = 0.51,
+        verification_threshold: float = 0.40,
         collection_name: str = "cosine_face_embeddings",
         database_path: str = "database/milvus.db",
         metric_type: str = "IP",
