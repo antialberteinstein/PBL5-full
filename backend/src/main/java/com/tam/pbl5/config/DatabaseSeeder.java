@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-public class DatabaseSeeder implements CommandLineRunner {
+public class    DatabaseSeeder implements CommandLineRunner {
 
     private final UserRepository userRepository;
     private final AuthorityRepository authorityRepository;

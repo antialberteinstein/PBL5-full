@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { classAPI, attendanceAPI, studentAPI } from "../services/api";
+import api, { classAPI, attendanceAPI, studentAPI } from "../services/api";
 
 const ClassDetail = () => {
   const { classId } = useParams();
@@ -9,15 +9,11 @@ const ClassDetail = () => {
   const userRole = localStorage.getItem("role") || "STUDENT";
   const isTeacher = userRole === "TEACHER";
 
-  const [activeTab, setActiveTab] = useState(isTeacher ? "live" : "students");
+  const [activeTab, setActiveTab] = useState("students");
 
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentAttendanceId, setCurrentAttendanceId] = useState(null);
-  const [faceRegistering, setFaceRegistering] = useState(false);
-  const [faceResult, setFaceResult] = useState("");
-  const [faceError, setFaceError] = useState("");
-  const [faceRegistered, setFaceRegistered] = useState(false);
   const [attendanceRunning, setAttendanceRunning] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSessions, setAttendanceSessions] = useState([]);
@@ -28,6 +24,13 @@ const ClassDetail = () => {
   const [pendingError, setPendingError] = useState("");
   const [pendingActionMssv, setPendingActionMssv] = useState("");
   const [previewImage, setPreviewImage] = useState(null);
+
+  const [newStudentId, setNewStudentId] = useState("");
+  const [addingStudent, setAddingStudent] = useState(false);
+
+  // ✨ STATE MỚI: Theo dõi thay đổi điểm danh (Draft) & Trạng thái lưu
+  const [draftChanges, setDraftChanges] = useState({}); // Cấu trúc: { [sessionId]: { [username]: boolean } }
+  const [isSaving, setIsSaving] = useState(false);
 
   const verifySocketRef = useRef(null);
   const liveFrameUrlRef = useRef(null);
@@ -48,7 +51,9 @@ const ClassDetail = () => {
   };
 
   const buildAttendedStudent = (studentUsername, checkinTime, imageUrl) => {
-    const matchedStudent = students.find((sv) => sv.username === studentUsername);
+    const matchedStudent = students.find(
+      (sv) => sv.username === studentUsername,
+    );
     return {
       mssv: matchedStudent?.id || studentUsername,
       fullName: matchedStudent?.name || studentUsername,
@@ -70,12 +75,23 @@ const ClassDetail = () => {
   };
 
   const upsertHistoryStudent = (attendanceId, datetime, attendedStudent) => {
+    if (
+      !isTeacher &&
+      attendedStudent.username !== currentUsername &&
+      attendedStudent.mssv !== currentUsername
+    ) {
+      return;
+    }
+
     setAttendanceSessions((prev) => {
       const nextStudent = {
         ...attendedStudent,
         imageUrl: attendedStudent.imageUrl || null,
+        isPresent: true,
       };
-      const existingSession = prev.find((session) => session.id === attendanceId);
+      const existingSession = prev.find(
+        (session) => session.id === attendanceId,
+      );
 
       if (!existingSession) {
         return [
@@ -107,7 +123,6 @@ const ClassDetail = () => {
     });
   };
 
-  // Các State để quản lý Import Excel
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -178,13 +193,36 @@ const ClassDetail = () => {
         const sessionsWithStudents = await Promise.all(
           sessions.map(async (session) => {
             try {
-              const attended = await attendanceAPI.getAttendedStudents(
-                session.id,
-              );
+              const [attendedRes, absentRes] = await Promise.all([
+                attendanceAPI.getAttendedStudents(session.id),
+                attendanceAPI.getAbsentStudents(session.id),
+              ]);
+
+              const attendedList = (attendedRes.data || []).map((sv) => ({
+                ...sv,
+                isPresent: true,
+              }));
+              const absentList = (absentRes.data || []).map((sv) => ({
+                ...sv,
+                isPresent: false,
+              }));
+
+              let studentsData = [...attendedList, ...absentList];
+              studentsData.sort((a, b) => a.mssv.localeCompare(b.mssv));
+
+              if (!isTeacher) {
+                studentsData = studentsData.filter(
+                  (sv) =>
+                    sv.username === currentUsername ||
+                    sv.mssv === currentUsername ||
+                    sv.id === currentUsername,
+                );
+              }
+
               return {
                 id: session.id,
                 datetime: session.datetime,
-                students: attended.data || [], // Dữ liệu này giờ đã có imageUrl từ Backend
+                students: studentsData,
                 open: false,
               };
             } catch (error) {
@@ -223,19 +261,6 @@ const ClassDetail = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const fetchFaceStatus = async () => {
-      if (isTeacher) return;
-      try {
-        const response = await studentAPI.getCurrentStudent();
-        setFaceRegistered(Boolean(response.data?.faceRegistered));
-      } catch (error) {
-        console.error("Lỗi khi lấy trạng thái khuôn mặt:", error);
-      }
-    };
-    fetchFaceStatus();
-  }, [isTeacher]);
-
   const handleStartAttendance = async () => {
     if (attendanceRunning) return;
     try {
@@ -251,7 +276,8 @@ const ClassDetail = () => {
         datetime: new Date().toISOString(),
       });
       const newAttendanceId = response.data.id;
-      const newAttendanceDatetime = response.data.datetime || new Date().toISOString();
+      const newAttendanceDatetime =
+        response.data.datetime || new Date().toISOString();
       setCurrentAttendanceId(newAttendanceId);
 
       const faceBase =
@@ -264,7 +290,9 @@ const ClassDetail = () => {
       socket.onopen = () => {
         setAttendanceRunning(true);
         const studentIds = students.map((sv) => sv.username).filter(Boolean);
-        socket.send(JSON.stringify({ type: "allowlist", student_ids: studentIds }));
+        socket.send(
+          JSON.stringify({ type: "allowlist", student_ids: studentIds }),
+        );
       };
       socket.onmessage = async (event) => {
         try {
@@ -286,11 +314,14 @@ const ClassDetail = () => {
             if (data?.type === "match") {
               if (!data?.student_id || !newAttendanceId) return;
 
-              const checkinResponse = await attendanceAPI.teacherCheckin(newAttendanceId, {
-                studentUsername: data.student_id,
-                checkinTime: data.checkin_time,
-                imageUrl: data.image_url,
-              });
+              const checkinResponse = await attendanceAPI.teacherCheckin(
+                newAttendanceId,
+                {
+                  studentUsername: data.student_id,
+                  checkinTime: null, // Sửa lỗi ngày tháng
+                  imageUrl: data.image_url,
+                },
+              );
               const storedImageUrl = checkinResponse.data?.imageUrl || null;
 
               const timeLabel = formatAttendanceTime(data.checkin_time);
@@ -358,6 +389,7 @@ const ClassDetail = () => {
     setLiveFrameUrl("");
   };
 
+  // Dùng cho TAB Live nếu có mở lại
   const handleManualCheckin = async (studentUsername) => {
     if (!currentAttendanceId) {
       alert("Vui lòng mở điểm danh trước khi thao tác!");
@@ -366,11 +398,9 @@ const ClassDetail = () => {
 
     try {
       const checkinTime = new Date().toISOString();
-      // ✨ CẬP NHẬT: Điểm danh tay thì imageUrl truyền null
       await attendanceAPI.teacherCheckin(currentAttendanceId, {
         studentUsername: studentUsername,
-        checkinTime,
-        imageUrl: null,
+        checkinTime: null, // Tránh lỗi Backend parse DateTime
       });
 
       const timeLabel = formatAttendanceTime(checkinTime);
@@ -392,9 +422,111 @@ const ClassDetail = () => {
     }
   };
 
-  const handleRegisterFace = async () => {
-    if (!currentUsername) return alert("Không tìm thấy tên đăng nhập.");
-    navigate("/register-face");
+  // ✨ HÀM LƯU NHÁP KHI TICK/BỎ TICK CHECKBOX
+  const handleToggleDraft = (sessionId, student) => {
+    setDraftChanges((prev) => {
+      const sessionDrafts = prev[sessionId] || {};
+      const currentDraftStatus =
+        sessionDrafts[student.username] !== undefined
+          ? sessionDrafts[student.username]
+          : student.isPresent;
+
+      return {
+        ...prev,
+        [sessionId]: {
+          ...sessionDrafts,
+          [student.username]: !currentDraftStatus,
+        },
+      };
+    });
+  };
+
+  // ✨ HÀM GỬI LƯU HÀNG LOẠT (XÁC NHẬN)
+  const handleConfirmChanges = async (sessionId, sessionStudents) => {
+    const changes = draftChanges[sessionId];
+    if (!changes || Object.keys(changes).length === 0) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Gọi API tương ứng cho mỗi thay đổi
+      for (const username of Object.keys(changes)) {
+        const newStatus = changes[username];
+        const originalStatus = sessionStudents.find(
+          (s) => s.username === username,
+        )?.isPresent;
+
+        if (newStatus !== originalStatus) {
+          if (newStatus) {
+            await attendanceAPI.teacherCheckin(sessionId, {
+              studentUsername: username,
+            });
+          } else {
+            await attendanceAPI.removeCheckin(sessionId, username);
+          }
+        }
+      }
+
+      alert("✅ Đã lưu thay đổi điểm danh thành công!");
+
+      // Xóa nháp
+      setDraftChanges((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+
+      // Cập nhật lại UI không cần fetch lại từ đầu
+      setAttendanceSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== sessionId) return session;
+          return {
+            ...session,
+            students: session.students.map((sv) => {
+              if (changes[sv.username] !== undefined) {
+                return {
+                  ...sv,
+                  isPresent: changes[sv.username],
+                  imageUrl: !changes[sv.username] ? null : sv.imageUrl,
+                };
+              }
+              return sv;
+            }),
+          };
+        }),
+      );
+    } catch (error) {
+      alert(
+        "❌ Lỗi khi lưu thay đổi: " + (error.response?.data || error.message),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddStudentManually = async (e) => {
+    e.preventDefault();
+    if (!newStudentId.trim()) return;
+
+    try {
+      setAddingStudent(true);
+      await api.post("/teacher-class/add-student", {
+        classId: parseInt(classId),
+        studentUsername: newStudentId.trim(),
+      });
+      alert("✅ Đã thêm sinh viên vào lớp thành công!");
+      setNewStudentId("");
+      fetchStudents();
+    } catch (error) {
+      alert(
+        "❌ Lỗi: " +
+          (error.response?.data ||
+            "Không thể thêm sinh viên hoặc SV không tồn tại"),
+      );
+    } finally {
+      setAddingStudent(false);
+    }
   };
 
   const handleApproveRequest = async (student) => {
@@ -450,6 +582,18 @@ const ClassDetail = () => {
     }
   };
 
+  const handleJoinDirect = async () => {
+    try {
+      await studentAPI.joinClass({ classId: parseInt(classId) });
+      alert("Đã gửi yêu cầu tham gia lớp!");
+      navigate("/dashboard");
+    } catch (error) {
+      alert("Lỗi: " + (error.response?.data || "Không thể xin gia nhập"));
+    }
+  };
+
+  const isMember = students.some((sv) => sv.username === currentUsername);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
@@ -502,43 +646,49 @@ const ClassDetail = () => {
         )}
       </header>
 
-      <div className="bg-white border-b border-gray-200 px-6">
-        <div className="flex space-x-8">
-          {isTeacher && (
+      {(isTeacher || isMember) && (
+        <div className="bg-white border-b border-gray-200 px-6">
+          <div className="flex space-x-8">
             <button
-              onClick={() => setActiveTab("live")}
-              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "live" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
+              onClick={() => setActiveTab("students")}
+              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "students" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
             >
-              🔴 Live Điểm danh
+              👥 Danh sách lớp
             </button>
-          )}
-          <button
-            onClick={() => setActiveTab("students")}
-            className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "students" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
-          >
-            👥 Danh sách lớp
-          </button>
-          {isTeacher && (
+            {isTeacher && (
+              <button
+                onClick={() => setActiveTab("pending")}
+                className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "pending" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
+              >
+                ⏳ Chờ duyệt ({pendingStudents.length})
+              </button>
+            )}
             <button
-              onClick={() => setActiveTab("pending")}
-              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "pending" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
+              onClick={() => setActiveTab("history")}
+              className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "history" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
             >
-              ⏳ Chờ duyệt
+              📅 Lịch sử buổi học
             </button>
-          )}
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`py-4 font-semibold text-sm border-b-2 transition ${activeTab === "history" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500"}`}
-          >
-            📅 Lịch sử buổi học
-          </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <main className="flex-1 p-6 lg:p-8">
         {loading ? (
           <div className="flex justify-center items-center py-20 text-gray-500">
             Đang tải dữ liệu...
+          </div>
+        ) : !isTeacher && !isMember ? (
+          <div className="bg-white rounded-xl border-2 border-dashed p-16 text-center max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold mb-4">
+              Bạn chưa tham gia lớp này
+            </h2>
+            <button
+              onClick={handleJoinDirect}
+              className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-lg"
+            >
+              + Gửi yêu cầu gia nhập
+            </button>
           </div>
         ) : (
           <>
@@ -548,66 +698,45 @@ const ClassDetail = () => {
               </div>
             )}
 
-            {/* TAB 1: LIVE */}
-            {isTeacher && activeTab === "live" && (
-              <div className="space-y-4">
-                <div className="bg-white rounded-lg border p-4">
-                  <div className="text-sm font-semibold text-gray-700 mb-3">
-                    Live từ AI
-                  </div>
-                  <div className="w-full aspect-video bg-gray-100 rounded-md overflow-hidden border">
-                    {liveFrameUrl ? (
-                      <img
-                        src={liveFrameUrl}
-                        alt="AI live"
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
-                        Chưa có tín hiệu hình ảnh
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {students.map((sv, index) => (
-                  <div
-                    key={index}
-                    className={`p-4 rounded-xl border flex flex-col items-center text-center ${sv.status === "PRESENT" ? "bg-green-50 border-green-200" : "bg-white"}`}
-                  >
-                    <div className="w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center mb-3 font-bold uppercase text-gray-500">
-                      {sv.name.charAt(0)}
-                    </div>
-                    <p className="font-bold text-sm truncate w-full">
-                      {sv.name}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">{sv.id}</p>
-                    {sv.status === "PRESENT" ? (
-                      <span className="mt-3 px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md">
-                        Vào lúc {sv.time}
-                      </span>
-                    ) : (
-                      <div className="mt-3 w-full">
-                        {attendanceRunning && (
-                          <button
-                            onClick={() => handleManualCheckin(sv.username)}
-                            className="w-full px-2 py-1 bg-indigo-50 text-indigo-700 text-[11px] font-bold rounded border border-indigo-200"
-                          >
-                            + Điểm danh tay
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: DANH SÁCH LỚP */}
+            {/* TAB DANH SÁCH LỚP */}
             {activeTab === "students" && (
-              <div className="bg-white rounded-lg border overflow-hidden">
+              <div className="bg-white rounded-lg border overflow-hidden shadow-sm">
+                <div className="p-4 bg-indigo-50 border-b flex flex-col md:flex-row justify-between md:items-center gap-4">
+                  <h3 className="font-bold text-indigo-800">
+                    Danh sách sinh viên chính thức ({students.length})
+                  </h3>
+                  {isTeacher && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <form
+                        onSubmit={handleAddStudentManually}
+                        className="flex gap-2"
+                      >
+                        <input
+                          type="text"
+                          required
+                          value={newStudentId}
+                          onChange={(e) => setNewStudentId(e.target.value)}
+                          placeholder="Nhập MSSV / Tài khoản..."
+                          className="border border-indigo-200 rounded-md px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48"
+                        />
+                        <button
+                          type="submit"
+                          disabled={addingStudent}
+                          className="bg-indigo-600 text-white text-sm px-4 py-1.5 rounded-md font-bold hover:bg-indigo-700 transition disabled:opacity-50 shadow-sm"
+                        >
+                          {addingStudent ? "Đang xử lý..." : "+ Thêm tay"}
+                        </button>
+                      </form>
+                      <button
+                        onClick={() => setShowImportModal(true)}
+                        className="bg-white text-sm px-4 py-1.5 rounded-md border border-indigo-200 font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-sm"
+                      >
+                        📥 Nhập Excel
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <table className="min-w-full divide-y">
                   <thead className="bg-gray-50">
                     <tr>
@@ -617,33 +746,49 @@ const ClassDetail = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Họ và Tên
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Mặt
+                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                        Trạng thái Mặt
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {students.map((sv, idx) => (
-                      <tr key={idx}>
-                        <td className="px-6 py-4 text-sm font-semibold">
-                          {sv.id}
-                        </td>
-                        <td className="px-6 py-4 text-sm">{sv.name}</td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`px-2 py-1 text-xs font-bold rounded-full ${sv.faceRegistered ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
-                          >
-                            {sv.faceRegistered ? "Đã ĐK" : "Chưa"}
-                          </span>
+                    {students.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan="3"
+                          className="px-6 py-12 text-center text-gray-500 italic"
+                        >
+                          Lớp học này hiện chưa có sinh viên nào.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      students.map((sv, idx) => (
+                        <tr
+                          key={idx}
+                          className="hover:bg-gray-50 transition-colors"
+                        >
+                          <td className="px-6 py-4 text-sm font-semibold text-gray-800">
+                            {sv.id}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-700">
+                            {sv.name}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span
+                              className={`px-3 py-1 text-[10px] font-bold rounded-full border ${sv.faceRegistered ? "bg-green-100 text-green-700 border-green-200" : "bg-gray-100 text-gray-500 border-gray-200"}`}
+                            >
+                              {sv.faceRegistered ? "Đã ĐK" : "Chưa"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
             )}
 
-            {/* TAB 3: CHỜ DUYỆT */}
+            {/* TAB CHỜ DUYỆT */}
             {isTeacher && activeTab === "pending" && (
               <div className="bg-white rounded-lg border overflow-hidden">
                 {pendingError && (
@@ -681,7 +826,6 @@ const ClassDetail = () => {
                     <tbody className="divide-y">
                       {pendingStudents.map((sv) => {
                         const isProcessing = pendingActionMssv === sv.mssv;
-
                         return (
                           <tr key={sv.mssv || sv.username || sv.id}>
                             <td className="px-6 py-4 text-sm font-semibold">
@@ -722,7 +866,7 @@ const ClassDetail = () => {
               </div>
             )}
 
-            {/* TAB 3: LỊCH SỬ (ĐÃ CẬP NHẬT CỘT ẢNH) */}
+            {/* TAB LỊCH SỬ TỔNG HỢP VỚI CHECKBOX */}
             {activeTab === "history" && (
               <div className="space-y-4">
                 {attendanceSessions.map((session) => (
@@ -747,6 +891,7 @@ const ClassDetail = () => {
                         {session.open ? "Đóng" : "Xem chi tiết"}
                       </span>
                     </button>
+
                     {session.open && (
                       <div className="border-t overflow-x-auto">
                         <table className="min-w-full divide-y">
@@ -759,48 +904,130 @@ const ClassDetail = () => {
                                 Họ Tên
                               </th>
                               <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                                Có Mặt
+                              </th>
+                              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                                 Ảnh Điểm Danh
                               </th>
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {session.students.map((sv, idx) => (
-                              <tr key={idx}>
-                                <td className="px-4 py-2 text-sm font-bold">
-                                  {sv.mssv}
-                                </td>
-                                <td className="px-4 py-2 text-sm">
-                                  {sv.fullName}
-                                </td>
-                                <td className="px-4 py-2 text-center">
-                                  {/* ✨ HIỂN THỊ ẢNH TỪ AI HOẶC CHỮ ĐIỂM DANH TAY */}
-                                  {sv.imageUrl ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setPreviewImage({
-                                          src: resolveAttendanceImageUrl(sv.imageUrl),
-                                          title: sv.fullName || sv.mssv || "Ảnh điểm danh",
-                                        })
-                                      }
-                                      className="block mx-auto rounded-md border focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    >
-                                      <img
-                                        src={resolveAttendanceImageUrl(sv.imageUrl)}
-                                        alt="AI Checkin"
-                                        className="w-12 h-12 object-cover rounded-md"
-                                      />
-                                    </button>
-                                  ) : (
-                                    <span className="text-[10px] italic text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                                      Điểm danh tay
-                                    </span>
-                                  )}
+                            {session.students.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan="4"
+                                  className="px-4 py-6 text-center text-sm text-gray-500 italic"
+                                >
+                                  {isTeacher
+                                    ? "Không có dữ liệu sinh viên trong buổi này."
+                                    : "Bạn vắng mặt trong buổi này."}
                                 </td>
                               </tr>
-                            ))}
+                            ) : (
+                              session.students.map((sv, idx) => {
+                                const sessionDrafts =
+                                  draftChanges[session.id] || {};
+                                const isCurrentlyPresent =
+                                  sessionDrafts[sv.username] !== undefined
+                                    ? sessionDrafts[sv.username]
+                                    : sv.isPresent;
+
+                                return (
+                                  <tr
+                                    key={idx}
+                                    className={
+                                      isCurrentlyPresent
+                                        ? "bg-white"
+                                        : "bg-red-50"
+                                    }
+                                  >
+                                    <td className="px-4 py-2 text-sm font-bold">
+                                      {sv.mssv}
+                                    </td>
+                                    <td className="px-4 py-2 text-sm">
+                                      {sv.fullName}
+                                    </td>
+
+                                    {/* Cột Checkbox */}
+                                    <td className="px-4 py-2 text-center">
+                                      <button
+                                        onClick={() =>
+                                          isTeacher &&
+                                          handleToggleDraft(session.id, sv)
+                                        }
+                                        disabled={!isTeacher || isSaving}
+                                        className={`mx-auto w-6 h-6 rounded border flex items-center justify-center transition-colors ${
+                                          isCurrentlyPresent
+                                            ? "bg-green-500 border-green-600 text-white"
+                                            : "bg-white border-gray-300 text-transparent"
+                                        } ${isTeacher && !isSaving ? "cursor-pointer hover:bg-green-600" : "cursor-default opacity-80"}`}
+                                      >
+                                        ✓
+                                      </button>
+                                    </td>
+
+                                    {/* Cột Ảnh */}
+                                    <td className="px-4 py-2 text-center">
+                                      {sv.imageUrl ? (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPreviewImage({
+                                              src: resolveAttendanceImageUrl(
+                                                sv.imageUrl,
+                                              ),
+                                              title: sv.fullName,
+                                            })
+                                          }
+                                          className="block mx-auto rounded-md border focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                          <img
+                                            src={resolveAttendanceImageUrl(
+                                              sv.imageUrl,
+                                            )}
+                                            alt="AI Checkin"
+                                            className="w-10 h-10 object-cover rounded-md"
+                                          />
+                                        </button>
+                                      ) : (
+                                        <span className="text-[10px] italic text-gray-500 bg-white/50 px-2 py-1 rounded">
+                                          {isCurrentlyPresent
+                                            ? "Điểm danh tay"
+                                            : "Vắng"}
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
                           </tbody>
                         </table>
+
+                        {/* NÚT XÁC NHẬN LƯU DÀNH CHO GIÁO VIÊN */}
+                        {isTeacher && (
+                          <div className="p-4 bg-gray-50 border-t flex justify-end">
+                            <button
+                              onClick={() =>
+                                handleConfirmChanges(
+                                  session.id,
+                                  session.students,
+                                )
+                              }
+                              disabled={
+                                isSaving ||
+                                !draftChanges[session.id] ||
+                                Object.keys(draftChanges[session.id]).length ===
+                                  0
+                              }
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md font-bold transition disabled:opacity-50 shadow-sm"
+                            >
+                              {isSaving
+                                ? "Đang lưu..."
+                                : "Xác nhận & Lưu điểm danh"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -844,6 +1071,7 @@ const ClassDetail = () => {
         </div>
       )}
 
+      {/* MODAL XEM ẢNH */}
       {previewImage && (
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
@@ -851,7 +1079,7 @@ const ClassDetail = () => {
         >
           <div
             className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
-            onClick={(event) => event.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <p className="text-sm font-semibold text-gray-800 truncate">
@@ -861,7 +1089,6 @@ const ClassDetail = () => {
                 type="button"
                 onClick={() => setPreviewImage(null)}
                 className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition"
-                aria-label="Đóng ảnh phóng to"
               >
                 X
               </button>

@@ -2,6 +2,7 @@ package com.tam.pbl5.service;
 
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
 import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
+import com.tam.pbl5.dto.response.StudentAttendanceReportDTO;
 import com.tam.pbl5.dto.response.TeacherCheckinResponse;
 import com.tam.pbl5.entity.*;
 import com.tam.pbl5.repository.*;
@@ -234,7 +235,7 @@ public class AttendanceService {
     // ==========================================
     // 4. XEM DANH SÁCH SINH VIÊN VẮNG MẶT
     // ==========================================
-    public List<Student> getAbsentStudents(Integer attendanceId, String token) {
+    public List<AttendedStudentResponse> getAbsentStudents(Integer attendanceId, String token) {
         if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
         String username = jwtService.extractUsername(token);
         String role = jwtService.extractRole(token);
@@ -271,7 +272,25 @@ public class AttendanceService {
                 .filter(id -> !attendedStudentIds.contains(id))
                 .collect(Collectors.toList());
 
-        return studentRepository.findAllById(absentStudentIds);
+        // 1. Lấy danh sách Entity Student đang vắng mặt
+        List<Student> absentStudents = studentRepository.findAllById(absentStudentIds);
+
+        // 2. Map sang DTO chứa Họ Tên lấy từ bảng Profile
+        return absentStudents.stream().map(student -> {
+            // Lấy fullName thông qua User -> Profile
+            String fullNameFromProfile = userRepository.findById(student.getUsername())
+                    .map(User::getProfile)
+                    .map(Profile::getFullName)
+                    .orElse("Chưa cập nhật tên");
+
+            return new AttendedStudentResponse(
+                    student.getMssv(),
+                    fullNameFromProfile, // Đã lấy được tên thật
+                    student.getUsername(),
+                    null, // Vắng mặt nên gán checkinTime là null
+                    null  // Vắng mặt nên gán imageUrl là null
+            );
+        }).collect(Collectors.toList());
     }
 
     // ==========================================
@@ -397,5 +416,64 @@ public class AttendanceService {
                 "Đã ghi nhận điểm danh cho sinh viên: " + studentUsername,
                 storedImageUrl
         );
+    }
+    public List<StudentAttendanceReportDTO> getStudentAttendanceReport(Integer classId, Integer studentId, String token) {
+        // Kiểm tra quyền (Chỉ cho phép sinh viên xem chính mình hoặc GV xem SV)
+        if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
+        String username = jwtService.extractUsername(token);
+
+        // Lấy tất cả các buổi học của lớp này
+        List<Attendance> sessions = attendanceRepository.findByClassId(classId);
+
+        return sessions.stream().map(session -> {
+            // Kiểm tra xem sinh viên đã điểm danh buổi này chưa
+            java.util.Optional<StudentAttendance> record =
+                    studentAttendanceRepository.findByAttendanceIdAndStudentId(session.getId(), studentId);
+
+            if (record.isPresent()) {
+                StudentAttendance sa = record.get();
+                return new StudentAttendanceReportDTO(
+                        session.getId(),
+                        session.getDatetime(),
+                        true, // Đã điểm danh
+                        sa.getImageUrl(),
+                        sa.getCheckInTime()
+                );
+            } else {
+                return new StudentAttendanceReportDTO(
+                        session.getId(),
+                        session.getDatetime(),
+                        false, // Chưa điểm danh (vắng)
+                        null,
+                        null
+                );
+            }
+        }).collect(Collectors.toList());
+    }
+    // ==========================================
+    // 7. GIÁO VIÊN HỦY ĐIỂM DANH (BỎ TICK CÓ MẶT)
+    // ==========================================
+    @Transactional
+    public String removeCheckin(Integer attendanceId, String studentUsername, String token) {
+        if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
+        String username = jwtService.extractUsername(token);
+        String role = jwtService.extractRole(token);
+
+        if (!"ROLE_TEACHER".equalsIgnoreCase(role)) {
+            throw new RuntimeException("Lỗi: Chỉ giáo viên mới được phép hủy điểm danh!");
+        }
+
+        Student student = studentRepository.findByUsername(studentUsername);
+        if (student == null) throw new RuntimeException("Lỗi: Không tìm thấy sinh viên!");
+
+        // Kiểm tra xem có bản ghi điểm danh không
+        StudentAttendance record = studentAttendanceRepository
+                .findByAttendanceIdAndStudentId(attendanceId, student.getId())
+                .orElseThrow(() -> new RuntimeException("Lỗi: Sinh viên này chưa được điểm danh!"));
+
+        // Xóa bản ghi điểm danh
+        studentAttendanceRepository.delete(record);
+
+        return "Đã hủy điểm danh cho sinh viên: " + studentUsername;
     }
 }

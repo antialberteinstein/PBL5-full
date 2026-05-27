@@ -8,17 +8,19 @@ const Dashboard = () => {
   const [myClasses, setMyClasses] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Lấy Role từ bộ nhớ (Mặc định là STUDENT nếu chưa có)
   const userRole = localStorage.getItem("role") || "STUDENT";
+  const currentUsername = localStorage.getItem("username") || "";
 
-  // --- CÁC STATE DÀNH CHO TẠO LỚP MỚI ---
+  // --- STATE TẠO LỚP (DÀNH CHO GIÁO VIÊN) ---
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newClassName, setNewClassName] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // --- STATE KHUÔN MẶT (DÀNH CHO SINH VIÊN) ---
   const [faceRegistering, setFaceRegistering] = useState(false);
-  const [faceError, setFaceError] = useState("");
-  const [faceResult, setFaceResult] = useState("");
   const [faceRegistered, setFaceRegistered] = useState(false);
+
+  // --- STATE XIN VÀO LỚP (DÀNH CHO SINH VIÊN) ---
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinClassId, setJoinClassId] = useState("");
   const [joinClassPreview, setJoinClassPreview] = useState(null);
@@ -26,20 +28,14 @@ const Dashboard = () => {
   const [joinError, setJoinError] = useState("");
   const [joinResult, setJoinResult] = useState("");
 
-  const currentUsername = localStorage.getItem("username") || "";
-
-  // Hàm gọi API lấy danh sách lớp
   const fetchClasses = async () => {
     try {
       setLoading(true);
-      let response;
-      if (userRole === "TEACHER") {
-        // Gọi API lấy danh sách lớp của Giáo viên
-        response = await api.get("/teacher-class/my-classes");
-      } else {
-        // Gọi API lấy danh sách lớp của Sinh viên
-        response = await api.get("/student-class/my-joined-classes");
-      }
+      const endpoint =
+        userRole === "TEACHER"
+          ? "/teacher-class/my-classes"
+          : "/student-class/my-joined-classes";
+      const response = await api.get(endpoint);
       setMyClasses(response.data);
     } catch (error) {
       console.error("Lỗi khi lấy danh sách lớp:", error);
@@ -54,10 +50,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchFaceStatus = async () => {
-      if (userRole === "TEACHER") {
-        return;
-      }
-
+      if (userRole === "TEACHER") return;
       try {
         const response = await studentAPI.getCurrentStudent();
         setFaceRegistered(Boolean(response.data?.faceRegistered));
@@ -65,25 +58,19 @@ const Dashboard = () => {
         console.error("Lỗi khi lấy trạng thái khuôn mặt:", error);
       }
     };
-
     fetchFaceStatus();
   }, [userRole]);
 
-  // --- HÀM XỬ LÝ KHI BẤM NÚT "LƯU LỚP HỌC" ---
+  // --- HANDLER CHO GIÁO VIÊN ---
   const handleCreateClass = async (e) => {
     e.preventDefault();
     if (!newClassName.trim()) return;
-
     try {
       setCreating(true);
-      // Gọi API Tạo lớp học bên ClazzController
       await api.post("/classes/create", { name: newClassName });
-
-      // Nếu thành công: Ẩn bảng, xóa chữ, tải lại danh sách
       setShowCreateModal(false);
       setNewClassName("");
       fetchClasses();
-
       alert("Tạo lớp học thành công!");
     } catch (error) {
       alert(error.response?.data || "Có lỗi xảy ra khi tạo lớp!");
@@ -92,19 +79,40 @@ const Dashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("username");
-    navigate("/login");
+  // --- HANDLER CHO SINH VIÊN ---
+  const handleFindJoinClass = async (e) => {
+    e.preventDefault();
+    const parsedClassId = Number(joinClassId);
+    if (!Number.isInteger(parsedClassId) || parsedClassId <= 0) {
+      return setJoinError("Vui lòng nhập ID lớp hợp lệ.");
+    }
+    try {
+      setJoinLoading(true);
+      setJoinError("");
+      setJoinResult("");
+      const response = await classAPI.getClassById(parsedClassId);
+      setJoinClassPreview(response.data);
+    } catch (error) {
+      setJoinClassPreview(null);
+      setJoinError("Không tìm thấy lớp học này.");
+    } finally {
+      setJoinLoading(false);
+    }
   };
 
-  const handleRegisterFace = async () => {
-    if (!currentUsername) {
-      alert("Không tìm thấy tên đăng nhập. Vui lòng đăng nhập lại.");
-      return;
+  const handleConfirmJoinClass = async () => {
+    if (!joinClassPreview?.id) return;
+    try {
+      setJoinLoading(true);
+      setJoinError("");
+      await studentAPI.joinClass({ classId: joinClassPreview.id });
+      setJoinResult("✅ Đã gửi yêu cầu tham gia lớp!");
+      fetchClasses();
+    } catch (error) {
+      setJoinError(error.response?.data || "Lỗi khi xin vào lớp.");
+    } finally {
+      setJoinLoading(false);
     }
-    navigate("/register-face");
   };
 
   const resetJoinModal = () => {
@@ -116,50 +124,15 @@ const Dashboard = () => {
     setJoinLoading(false);
   };
 
-  const handleFindJoinClass = async (e) => {
-    e.preventDefault();
-    const parsedClassId = Number(joinClassId);
-    if (!Number.isInteger(parsedClassId) || parsedClassId <= 0) {
-      setJoinError("Vui lòng nhập ID lớp hợp lệ.");
-      return;
-    }
-
-    try {
-      setJoinLoading(true);
-      setJoinError("");
-      setJoinResult("");
-      const response = await classAPI.getClassById(parsedClassId);
-      setJoinClassPreview(response.data);
-    } catch (error) {
-      setJoinClassPreview(null);
-      setJoinError(error.response?.data || "Không tìm thấy lớp học.");
-    } finally {
-      setJoinLoading(false);
-    }
-  };
-
-  const handleConfirmJoinClass = async () => {
-    if (!joinClassPreview?.id) return;
-
-    try {
-      setJoinLoading(true);
-      setJoinError("");
-      const response = await studentAPI.joinClass({ classId: joinClassPreview.id });
-      setJoinResult(response.data);
-      setJoinClassPreview(null);
-      setJoinClassId("");
-      fetchClasses();
-    } catch (error) {
-      setJoinError(error.response?.data || "Không thể gửi yêu cầu tham gia lớp.");
-    } finally {
-      setJoinLoading(false);
-    }
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate("/login");
   };
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans relative">
       {/* SIDEBAR */}
-      <div className="w-16 bg-gray-100 border-r border-gray-200 flex flex-col items-center py-4 shadow-sm z-10">
+      <div className="w-16 bg-gray-100 border-r flex flex-col items-center py-4 z-10">
         <button className="flex flex-col items-center mb-6 text-indigo-600 relative">
           <div className="absolute -left-3 top-1 w-1 h-8 bg-indigo-600 rounded-r-md"></div>
           <svg className="w-6 h-6 mb-1" fill="currentColor" viewBox="0 0 20 20">
@@ -169,15 +142,11 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* KHU VỰC CHÍNH */}
+      {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm">
-          <div className="flex-1 max-w-xl">
-            <h2 className="text-lg font-semibold text-gray-700">
-              Hệ thống điểm danh PBL5
-            </h2>
-          </div>
-          <div className="flex items-center space-x-4 ml-4">
+        <header className="h-14 bg-white border-b flex items-center justify-between px-6">
+          <h2 className="text-lg font-semibold">Hệ thống điểm danh AI</h2>
+          <div className="flex items-center space-x-4">
             <span
               className={`px-3 py-1 text-xs font-bold rounded-full ${userRole === "TEACHER" ? "bg-orange-100 text-orange-600" : "bg-green-100 text-green-600"}`}
             >
@@ -185,29 +154,24 @@ const Dashboard = () => {
             </span>
             <button
               onClick={handleLogout}
-              className="text-sm text-gray-600 hover:text-red-500 font-medium transition"
+              className="text-sm text-gray-600 hover:text-red-500"
             >
               Đăng xuất
             </button>
-            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
-              K
-            </div>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8 bg-gray-50">
-          <div className="flex justify-between items-end mb-6">
-            <h1 className="text-2xl font-bold text-gray-800">
-              {userRole === "TEACHER"
-                ? "Các lớp bạn đang giảng dạy"
-                : "Các lớp bạn đã tham gia"}
+        <main className="flex-1 overflow-y-auto p-8">
+          <div className="flex justify-between mb-6">
+            <h1 className="text-2xl font-bold">
+              {userRole === "TEACHER" ? "Lớp giảng dạy" : "Lớp đã tham gia"}
             </h1>
 
-            {/* HIỂN THỊ NÚT BẤM THEO ROLE */}
+            {/* NÚT BẤM THEO QUYỀN */}
             {userRole === "TEACHER" ? (
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="bg-orange-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-orange-600 shadow-sm transition"
+                className="bg-orange-500 text-white px-4 py-2 rounded-md font-medium shadow-sm hover:bg-orange-600"
               >
                 + Tạo lớp học mới
               </button>
@@ -215,20 +179,19 @@ const Dashboard = () => {
               <div className="flex items-center gap-3">
                 {!faceRegistered ? (
                   <button
-                    onClick={handleRegisterFace}
-                    disabled={faceRegistering}
-                    className={`px-4 py-2 rounded-md text-sm font-semibold shadow-sm transition ${faceRegistering ? "bg-gray-300 text-gray-600" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}
+                    onClick={() => navigate("/register-face")}
+                    className="bg-indigo-600 text-white px-4 py-2 rounded-md font-medium shadow-sm hover:bg-indigo-700"
                   >
-                    {faceRegistering ? "Đang mở camera..." : "Đăng ký khuôn mặt"}
+                    Đăng ký khuôn mặt
                   </button>
                 ) : (
-                  <div className="px-4 py-2 rounded-md text-sm font-semibold text-green-700 bg-green-50 border border-green-200">
-                    Đã đăng ký khuôn mặt
-                  </div>
+                  <span className="bg-green-50 text-green-700 border border-green-200 px-4 py-2 rounded-md font-medium">
+                    ✅ Đã ĐK khuôn mặt
+                  </span>
                 )}
                 <button
                   onClick={() => setShowJoinModal(true)}
-                  className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-100 shadow-sm transition"
+                  className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-md font-medium hover:bg-indigo-100"
                 >
                   + Xin tham gia lớp
                 </button>
@@ -236,63 +199,31 @@ const Dashboard = () => {
             )}
           </div>
 
-          {userRole !== "TEACHER" && (faceError || faceResult) && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-              <h3 className="text-sm font-semibold text-gray-800">
-                Trạng thái đăng ký khuôn mặt
-              </h3>
-              <p className="text-xs text-gray-500 mt-1">
-                ID đăng ký: {currentUsername || "(chưa có)"}
-              </p>
-              {faceError && (
-                <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                  {faceError}
-                </div>
-              )}
-              {faceResult && (
-                <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
-                  {faceResult}
-                </div>
-              )}
-            </div>
-          )}
-
           {loading ? (
-            <div className="text-center text-gray-500 mt-10">
-              Đang tải danh sách lớp học...
+            <div className="text-center py-10 text-gray-500">
+              Đang tải danh sách...
             </div>
           ) : myClasses.length === 0 ? (
-            <div className="text-center text-gray-500 mt-10">
-              Bạn chưa có lớp học nào ở đây cả.
+            <div className="text-center py-10 text-gray-500 border border-dashed rounded-lg">
+              Chưa có lớp học nào.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {myClasses.map((cls) => (
                 <div
                   key={cls.id}
-                  onClick={() => navigate(`/class/${cls.id}`)} // <--- THÊM DÒNG NÀY ĐỂ BẤM ĐƯỢC
-                  className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition cursor-pointer flex flex-col h-40"
+                  onClick={() => navigate(`/class/${cls.id}`)}
+                  className="bg-white p-4 border rounded-lg shadow-sm cursor-pointer hover:shadow-md transition"
                 >
                   <div
-                    className={`h-20 rounded-t-lg flex items-center justify-center ${userRole === "TEACHER" ? "bg-orange-50" : "bg-gray-100"}`}
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold mb-3 ${userRole === "TEACHER" ? "bg-orange-100 text-orange-600" : "bg-indigo-100 text-indigo-600"}`}
                   >
-                    <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg shadow-inner ${userRole === "TEACHER" ? "bg-orange-100 text-orange-600" : "bg-indigo-100 text-indigo-600"}`}
-                    >
-                      {cls.name ? cls.name.substring(0, 2).toUpperCase() : "CL"}
-                    </div>
+                    {cls.name ? cls.name.substring(0, 2).toUpperCase() : "CL"}
                   </div>
-                  <div className="p-4 flex-1 flex flex-col justify-between">
-                    <h3
-                      className="font-bold text-gray-800 text-lg truncate"
-                      title={cls.name}
-                    >
-                      {cls.name}
-                    </h3>
-                    <p className="text-sm text-gray-500 mt-1 font-medium">
-                      ID Lớp: #{cls.id}
-                    </p>
-                  </div>
+                  <h3 className="font-bold text-gray-800 truncate">
+                    {cls.name}
+                  </h3>
+                  <p className="text-sm text-gray-500">ID Lớp: #{cls.id}</p>
                 </div>
               ))}
             </div>
@@ -300,41 +231,36 @@ const Dashboard = () => {
         </main>
       </div>
 
-      {/* --- BẢNG (MODAL) NHẬP TÊN TẠO LỚP HỌC --- */}
+      {/* ============================================== */}
+      {/* MODAL 1: TẠO LỚP (GIÁO VIÊN)                     */}
+      {/* ============================================== */}
       {showCreateModal && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-96 p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">
-              Tạo lớp học mới
-            </h2>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-96 shadow-xl">
+            <h2 className="text-xl font-bold mb-4">Tạo lớp học mới</h2>
             <form onSubmit={handleCreateClass}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tên lớp học
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newClassName}
-                  onChange={(e) => setNewClassName(e.target.value)}
-                  placeholder="Nhập tên lớp (VD: Lập trình Java)"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-              <div className="flex justify-end space-x-3 mt-6">
+              <input
+                type="text"
+                required
+                value={newClassName}
+                onChange={(e) => setNewClassName(e.target.value)}
+                placeholder="Tên lớp học (VD: Lập trình Java)"
+                className="w-full border rounded px-3 py-2 mb-4"
+              />
+              <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition"
+                  className="px-4 py-2 border rounded"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={creating}
-                  className="px-4 py-2 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-md transition disabled:opacity-50"
+                  className="px-4 py-2 bg-orange-500 text-white rounded font-bold"
                 >
-                  {creating ? "Đang tạo..." : "Lưu lớp học"}
+                  {creating ? "Đang tạo..." : "Lưu"}
                 </button>
               </div>
             </form>
@@ -342,107 +268,83 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* ============================================== */}
+      {/* MODAL 2: XIN VÀO LỚP (SINH VIÊN)                 */}
+      {/* ============================================== */}
       {showJoinModal && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-96 p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">
-              Xin tham gia lớp
-            </h2>
-
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-96 shadow-xl">
+            <h2 className="text-xl font-bold mb-4">Xin tham gia lớp</h2>
             {joinResult ? (
               <div>
-                <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2 mb-5">
+                <p className="text-green-700 bg-green-50 p-3 rounded mb-4 font-medium">
                   {joinResult}
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    onClick={resetJoinModal}
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition"
-                  >
-                    OK
-                  </button>
-                </div>
+                </p>
+                <button
+                  onClick={resetJoinModal}
+                  className="w-full bg-indigo-600 text-white py-2 rounded"
+                >
+                  OK
+                </button>
               </div>
             ) : joinClassPreview ? (
               <div>
-                <p className="text-sm text-gray-700 mb-2">
-                  Bạn có muốn tham gia lớp{" "}
-                  <span className="font-bold text-gray-900">
-                    {joinClassPreview.name}
-                  </span>{" "}
-                  không?
-                </p>
-                <p className="text-xs text-gray-500 mb-5">
-                  ID Lớp: #{joinClassPreview.id}
-                </p>
-
+                <p className="mb-2">Bạn có muốn tham gia lớp này?</p>
+                <div className="bg-gray-100 p-3 rounded mb-4">
+                  <p className="font-bold text-lg">{joinClassPreview.name}</p>
+                  <p className="text-sm text-gray-500">
+                    ID: #{joinClassPreview.id}
+                  </p>
+                </div>
                 {joinError && (
-                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">
-                    {joinError}
-                  </div>
+                  <p className="text-red-500 text-sm mb-4">{joinError}</p>
                 )}
-
-                <div className="flex justify-end space-x-3">
+                <div className="flex gap-2">
                   <button
-                    onClick={() => {
-                      setJoinClassPreview(null);
-                      setJoinError("");
-                    }}
-                    disabled={joinLoading}
-                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition disabled:opacity-50"
+                    onClick={() => setJoinClassPreview(null)}
+                    className="w-full border py-2 rounded"
                   >
                     Hủy
                   </button>
                   <button
                     onClick={handleConfirmJoinClass}
                     disabled={joinLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition disabled:opacity-50"
+                    className="w-full bg-indigo-600 text-white py-2 rounded font-bold"
                   >
-                    {joinLoading ? "Đang gửi..." : "OK"}
+                    {joinLoading ? "Đang gửi..." : "Xác nhận"}
                   </button>
                 </div>
               </div>
             ) : (
               <form onSubmit={handleFindJoinClass}>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    ID lớp
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={joinClassId}
-                    onChange={(e) => {
-                      setJoinClassId(e.target.value);
-                      setJoinError("");
-                    }}
-                    placeholder="Nhập ID lớp"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
+                <input
+                  type="number"
+                  required
+                  value={joinClassId}
+                  onChange={(e) => {
+                    setJoinClassId(e.target.value);
+                    setJoinError("");
+                  }}
+                  placeholder="Nhập ID lớp..."
+                  className="w-full border rounded px-3 py-2 mb-4"
+                />
                 {joinError && (
-                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">
-                    {joinError}
-                  </div>
+                  <p className="text-red-500 text-sm mb-4">{joinError}</p>
                 )}
-
-                <div className="flex justify-end space-x-3 mt-6">
+                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={resetJoinModal}
-                    disabled={joinLoading}
-                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition disabled:opacity-50"
+                    className="w-full border py-2 rounded"
                   >
                     Hủy
                   </button>
                   <button
                     type="submit"
                     disabled={joinLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition disabled:opacity-50"
+                    className="w-full bg-indigo-600 text-white py-2 rounded font-bold"
                   >
-                    {joinLoading ? "Đang tìm..." : "Tiếp tục"}
+                    {joinLoading ? "Đang tìm..." : "Tìm lớp"}
                   </button>
                 </div>
               </form>
