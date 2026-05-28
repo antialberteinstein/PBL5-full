@@ -2,11 +2,12 @@ package com.tam.pbl5.controller;
 
 import com.tam.pbl5.dto.request.ClassCreateRequest;
 import com.tam.pbl5.entity.Clazz;
-import com.tam.pbl5.entity.Student;
+// import com.tam.pbl5.entity.Student; // Không cần dùng nữa
 import com.tam.pbl5.service.ClazzService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.tam.pbl5.dto.response.StudentInClassProjection;
 
 import java.util.List;
 
@@ -55,7 +56,8 @@ public class ClazzController {
             @PathVariable Integer classId,
             @RequestHeader("Authorization") String token) {
         try {
-            List<Student> students = clazzService.getApprovedStudentsInClass(classId, token);
+            // ĐÃ SỬA: Thay List<Student> bằng List<StudentInClassProjection>
+            List<StudentInClassProjection> students = clazzService.getApprovedStudentsInClass(classId, token);
             return ResponseEntity.ok(students);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());

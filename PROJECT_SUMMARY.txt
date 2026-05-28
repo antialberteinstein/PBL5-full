@@ -1,0 +1,525 @@
+================================================================================
+  PBL5 - HỆ THỐNG ĐIỂM DANH BẰNG NHẬN DIỆN KHUÔN MẶT (Face Recognition Attendance System)
+================================================================================
+
+Dự án PBL5 là một hệ thống điểm danh sinh viên sử dụng công nghệ nhận diện
+khuôn mặt (Face Recognition). Hệ thống gồm 3 phần chính:
+  1. AI API (Python/FastAPI) - Xử lý nhận diện khuôn mặt
+  2. Backend API (Java/Spring Boot) - Xử lý logic nghiệp vụ
+  3. Frontend (React/Vite) - Giao diện người dùng
+
+================================================================================
+  KIẾN TRÚC TỔNG QUAN
+================================================================================
+
+  [Frontend React :5173] --(HTTP/REST)--> [Backend Spring Boot :8080] --(MySQL)--> [Database pbl5]
+                         \                                          /
+                          `--(WebSocket/HTTP)-->  [AI FastAPI :8000]
+
+- Frontend gọi Backend qua REST API (port 8080)
+- Frontend cũng gọi trực tiếp AI API (port 8000) cho việc nhận diện khuôn mặt
+- Backend kết nối MySQL database "pbl5"
+- AI API sử dụng Milvus (vector database) để lưu/tìm kiếm face embeddings
+
+================================================================================
+  CƠ SỞ DỮ LIỆU (MySQL - Database: pbl5)
+================================================================================
+
+Các bảng chính:
+
+1. profile          - Thông tin cá nhân (id, avatar_path, birth, full_name, email)
+2. users            - Tài khoản đăng nhập (username PK, enabled, password, profile_id FK)
+3. authority        - Phân quyền (authority, username) - VD: ROLE_ADMIN, ROLE_TEACHER, ROLE_STUDENT
+4. teacher          - Giáo viên (id, username FK)
+5. student          - Sinh viên (id, username FK, face_registered)
+6. class            - Lớp học (id, name, teacher_id FK)
+7. student_class    - Quan hệ sinh viên-lớp (id, class_id FK, student_id FK, status: PENDING/APPROVED/REJECTED)
+8. attendance       - Buổi điểm danh (id, datetime, class_id FK)
+9. student_attendance - Chi tiết điểm danh (id, attendance_id FK, student_id FK, checkin_time, image_url)
+10. notification    - Thông báo (id, content, date, title)
+11. user_notification - Thông báo cho user (notification_id FK, username FK, is_read)
+
+Quan hệ:
+- 1 User có 1 Profile
+- 1 User có nhiều Authority (roles)
+- 1 User có thể là Teacher hoặc Student
+- 1 Teacher quản lý nhiều Class
+- 1 Class có nhiều Student thông qua student_class (với trạng thái PENDING/APPROVED/REJECTED)
+- 1 Class có nhiều buổi Attendance
+- 1 Attendance có nhiều StudentAttendance records
+
+================================================================================
+  PHẦN 1: AI API (Python/FastAPI)
+================================================================================
+
+Thư mục: /ai/
+Ngôn ngữ: Python
+Framework: FastAPI + Uvicorn
+Port mặc định: 8000
+
+--- Cây thư mục ---
+
+ai/
+├── requirements.txt          # Dependencies
+├── models/
+│   └── preprocessing/        # Chứa các model preprocessing (PCA, Scaler)
+├── src/
+│   ├── __init__.py
+│   ├── logging_setup.py      # Cấu hình logging
+│   ├── api/                  # FastAPI application
+│   │   ├── __init__.py
+│   │   ├── app.py            # Entry point - khởi tạo FastAPI app
+│   │   ├── routes/           # API endpoints
+│   │   │   ├── local/
+│   │   │   │   └── verify_stream.py    # WebSocket endpoint cho verify khuôn mặt (local camera)
+│   │   │   └── stream/
+│   │   │       ├── common.py           # Shared utilities cho stream routes
+│   │   │       └── register_stream.py  # WebSocket endpoint cho đăng ký khuôn mặt
+│   │   ├── bridges/          # Bridge pattern kết nối API với các module
+│   │   │   ├── camera/
+│   │   │   │   └── camera_bridge.py    # Factory cho camera client
+│   │   │   ├── service/
+│   │   │   │   ├── pipeline_bridge.py  # Khởi tạo và cache các pipeline (recog, classify, anti-spoofing)
+│   │   │   │   └── service_bridge.py   # Khởi tạo services (registration, verification)
+│   │   │   ├── ui/
+│   │   │   │   ├── ui_runner.py        # Chạy OpenCV UI loop trên main thread
+│   │   │   │   └── ui_tasks.py         # Task queue cho UI operations
+│   │   │   └── lcd/
+│   │   │       └── lcd_bridge.py       # Kết nối LCD display (cho embedded system)
+│   │   └── schemas/
+│   │       └── __init__.py             # Pydantic schemas cho API
+│   ├── anti_spoofing/        # Module chống giả mạo khuôn mặt
+│   │   └── as_detector.py    # Anti-spoofing detector (phát hiện ảnh/video giả)
+│   ├── camera/               # Module xử lý camera
+│   │   ├── http_client.py    # Camera qua HTTP stream
+│   │   ├── opencv_client.py  # Camera qua OpenCV (webcam local)
+│   │   ├── udp_client.py     # Camera qua UDP stream
+│   │   ├── udp_client_bak.py
+│   │   └── udp_client_chunk.py
+│   ├── classify/             # Module phân loại khuôn mặt
+│   │   ├── cosine_classifier.py  # Cosine similarity classifier
+│   │   └── preprocessing.py      # Tiền xử lý embedding (PCA, Scaler, normalize)
+│   ├── config/               # Cấu hình
+│   │   ├── api_config.py           # Cấu hình API (camera client type)
+│   │   ├── api_service_config.py   # Cấu hình service
+│   │   ├── camera_config.py        # Cấu hình camera
+│   │   ├── http_camera_config.py   # Cấu hình HTTP camera
+│   │   ├── recog_config.py         # Cấu hình recognition (threshold, model)
+│   │   ├── services_debug_config.py # Debug config
+│   │   └── ui_debug_config.py      # UI debug config
+│   ├── pipeline/             # Pipeline xử lý (chuỗi xử lý)
+│   │   ├── anti_spoofing.py  # Pipeline anti-spoofing
+│   │   ├── classify.py       # Pipeline classify (phân loại)
+│   │   └── recog.py          # Pipeline recognition (nhận diện)
+│   ├── recog/                # Module nhận diện khuôn mặt
+│   │   ├── __init__.py
+│   │   └── face_recognition.py  # Core face recognition (InsightFace + Milvus vector DB)
+│   ├── services/             # Business logic services
+│   │   ├── registration_service.py   # Đăng ký khuôn mặt mới
+│   │   ├── update_face_service.py    # Cập nhật khuôn mặt
+│   │   └── verification_service.py   # Xác minh khuôn mặt (điểm danh)
+│   ├── ui/                   # OpenCV UI cho debug/demo
+│   │   ├── colors.py
+│   │   ├── registration_ui.py    # UI đăng ký khuôn mặt
+│   │   ├── update_face_ui.py     # UI cập nhật khuôn mặt
+│   │   └── verification_ui.py    # UI xác minh khuôn mặt
+│   └── utils/                # Tiện ích
+│       ├── bbox_utils.py     # Bounding box utilities
+│       ├── mask_utils.py     # Mask utilities (che mặt)
+│       └── pose_utils.py     # Pose estimation utilities
+├── test/                     # Test scripts
+│   ├── test_antispoofing.py
+│   ├── test_api_web.py
+│   ├── test_capture_face.py
+│   ├── test_face_detect.py
+│   ├── test_face_detect_on_available_images.py
+│   ├── test_mask.py
+│   ├── test_ui.py
+│   ├── test_ws_register_stream.py
+│   ├── test_ws_verify_stream.py
+│   └── test_ws_verify_stream_local.py
+└── tools/                    # Utility scripts
+    ├── clean_database.py           # Xóa dữ liệu Milvus
+    ├── clean_logs.py               # Xóa log files
+    ├── clean_project.py            # Dọn dẹp dự án
+    ├── download_preprocessing.py   # Tải model preprocessing từ GDrive
+    ├── finetune_pca_model.py       # Tinh chỉnh PCA model
+    ├── finetune_scaler_model.py    # Tinh chỉnh Scaler model
+    ├── reset_models.py             # Reset models về mặc định
+    └── train_preprocessing_models.py # Train lại preprocessing models
+
+--- Dependencies (requirements.txt) ---
+- fastapi         : Web framework async
+- numpy           : Xử lý số
+- opencv-python   : Xử lý ảnh, camera
+- insightface     : Face detection & recognition model
+- onnx            : ONNX model format
+- onnxruntime     : Chạy ONNX models
+- pymilvus        : Milvus vector database (lưu face embeddings)
+- scikit-learn    : PCA, Scaler cho preprocessing
+- uvicorn         : ASGI server
+- deepface        : Anti-spoofing detection
+- gdown           : Tải file từ Google Drive
+
+--- API Endpoints ---
+1. WebSocket /register  - Đăng ký khuôn mặt sinh viên (stream video từ webcam)
+2. WebSocket /verify    - Xác minh khuôn mặt để điểm danh (stream video từ webcam local)
+
+--- Luồng xử lý AI ---
+1. ĐĂNG KÝ KHUÔN MẶT:
+   - Nhận stream video từ webcam → Detect face (InsightFace)
+   - Trích xuất face embedding (512-dim vector)
+   - Preprocessing: PCA reduce dimension → Scale → Normalize
+   - Lưu embedding vào Milvus vector DB với student_id
+
+2. XÁC MINH KHUÔN MẶT (ĐIỂM DANH):
+   - Nhận stream video từ webcam → Detect face (InsightFace)
+   - Anti-spoofing check (DeepFace) → Chống giả mạo bằng ảnh/video
+   - Trích xuất face embedding
+   - Preprocessing → Tìm kiếm embedding gần nhất trong Milvus (cosine similarity)
+   - Trả về student_id nếu match (vượt threshold)
+
+================================================================================
+  PHẦN 2: BACKEND API (Java/Spring Boot)
+================================================================================
+
+Thư mục: /backend/
+Ngôn ngữ: Java 21
+Framework: Spring Boot 4.0.3
+Port mặc định: 8080
+Database: MySQL (pbl5)
+
+--- Cây thư mục ---
+
+backend/src/main/java/com/tam/pbl5/
+├── Pbl5Application.java              # Main Spring Boot application
+├── config/                           # Cấu hình
+│   ├── CorsConfig.java              # CORS configuration (cho phép frontend gọi API)
+│   ├── DatabaseSeeder.java          # Seed dữ liệu ban đầu (admin account, etc.)
+│   ├── JwtAuthenticationFilter.java # JWT filter cho Spring Security
+│   ├── SecurityConfig.java          # Spring Security config (endpoint permissions)
+│   └── UploadResourceConfig.java    # Config đường dẫn upload file (avatar, ảnh khuôn mặt)
+├── controller/                       # REST Controllers (API endpoints)
+│   ├── AuthController.java          # /api/auth/** - Đăng ký, đăng nhập, xác thực OTP
+│   ├── AdminController.java         # /api/admin/** - Quản lý users, classes (admin only)
+│   ├── ClazzController.java         # /api/classes/** - CRUD lớp học
+│   ├── TeacherClassController.java  # /api/teacher-class/** - Giáo viên quản lý lớp
+│   ├── StudentClassController.java  # /api/student-class/** - Sinh viên tham gia lớp
+│   ├── AttendanceController.java    # /api/attendance/** - Điểm danh
+│   └── ProfileController.java      # /api/profiles/** - Cập nhật hồ sơ
+├── entity/                           # JPA Entities (tương ứng bảng DB)
+│   ├── User.java                    # Tài khoản (username, password, enabled, profile)
+│   ├── Profile.java                 # Hồ sơ (fullName, email, birth, avatarPath)
+│   ├── Authority.java               # Phân quyền (ROLE_ADMIN, ROLE_TEACHER, ROLE_STUDENT)
+│   ├── Teacher.java                 # Giáo viên
+│   ├── Student.java                 # Sinh viên (faceRegistered flag)
+│   ├── Clazz.java                   # Lớp học (name, teacher)
+│   ├── StudentClass.java            # Quan hệ SV-Lớp (status: PENDING/APPROVED/REJECTED)
+│   ├── Attendance.java              # Buổi điểm danh (datetime, class)
+│   ├── StudentAttendance.java       # Chi tiết điểm danh (checkinTime, imageUrl)
+│   ├── Notification.java           # Thông báo
+│   └── UserNotification.java       # Thông báo cho user
+├── repository/                       # JPA Repositories (truy vấn DB)
+│   ├── UserRepository.java
+│   ├── ProfileRepository.java
+│   ├── AuthorityRepository.java
+│   ├── TeacherRepository.java
+│   ├── StudentRepository.java
+│   ├── ClassRepository.java
+│   ├── StudentClassRepository.java
+│   ├── AttendanceRepository.java
+│   ├── StudentAttendanceRepository.java
+│   ├── NotificationRepository.java
+│   └── UserNotificationRepository.java
+├── service/                          # Business Logic
+│   ├── AuthService.java             # Xử lý đăng ký, đăng nhập, JWT, OTP qua email
+│   ├── JwtService.java              # Tạo/validate JWT token
+│   ├── OtpCacheService.java         # Cache OTP trong memory
+│   ├── AdminService.java            # Logic admin: quản lý user, class, thống kê
+│   ├── ClazzService.java            # CRUD lớp học
+│   ├── TeacherClassService.java     # Logic giáo viên: duyệt SV, import Excel, điểm danh
+│   ├── StudentClassService.java     # Logic sinh viên: join/quit lớp, đăng ký mặt
+│   ├── AttendanceService.java       # Logic điểm danh: tạo buổi, checkin, báo cáo
+│   └── ProfileService.java         # Cập nhật hồ sơ
+├── dto/                              # Data Transfer Objects
+│   ├── request/                     # Request DTOs
+│   │   ├── LoginRequest.java        # {username, password}
+│   │   ├── RegisterRequest.java     # {username, password, email, fullName, role}
+│   │   ├── VerifyOtpRequest.java    # {username, otp}
+│   │   ├── ClassCreateRequest.java  # {name}
+│   │   ├── StudentJoinRequest.java  # {classId}
+│   │   ├── AttendanceCreateRequest.java # {classId, datetime}
+│   │   ├── StudentCheckinRequest.java   # {attendanceId}
+│   │   ├── TeacherCheckinRequest.java   # {attendanceId, studentUsername}
+│   │   ├── TeacherAddStudentRequest.java # {classId, mssv}
+│   │   ├── ProfileUpdateRequest.java    # {fullName, birth}
+│   │   └── AdminCreateUserRequest.java  # {username, password, email, fullName, role}
+│   └── response/                    # Response DTOs
+│       ├── LoginResponse.java       # {token, username, role, fullName}
+│       ├── AttendedStudentResponse.java
+│       ├── StudentAttendanceReportDTO.java
+│       └── TeacherCheckinResponse.java
+└── util/
+    └── OtpData.java                 # OTP data holder
+
+--- Dependencies chính (pom.xml) ---
+- spring-boot-starter-data-jpa     : JPA/Hibernate ORM
+- spring-boot-starter-webmvc       : REST API
+- spring-boot-starter-security     : Spring Security + JWT
+- spring-boot-starter-validation   : Bean validation
+- spring-boot-starter-mail         : Gửi email (OTP)
+- mysql-connector-j                : MySQL driver
+- jjwt (0.11.5)                    : JWT token library
+- lombok                           : Reduce boilerplate code
+- poi-ooxml (5.2.3)                : Đọc/ghi file Excel
+
+--- API Endpoints Backend ---
+
+AUTH (/api/auth):
+  POST /register        - Đăng ký tài khoản (gửi OTP qua email)
+  POST /login           - Đăng nhập (trả về JWT token)
+  POST /verify-otp      - Xác thực OTP
+  POST /resend-otp      - Gửi lại OTP
+
+USER/PROFILE (/api/users, /api/profiles):
+  GET  /users/me             - Lấy thông tin user hiện tại
+  GET  /users/{username}     - Lấy thông tin user theo username
+  PUT  /users/me/password    - Đổi mật khẩu
+  POST /users/me/face        - Upload ảnh khuôn mặt
+  PATCH /profiles/{id}       - Cập nhật profile
+
+CLASS (/api/classes):
+  GET    /classes            - Lấy danh sách lớp (của user)
+  GET    /classes/{id}       - Chi tiết lớp
+  POST   /classes            - Tạo lớp mới (teacher)
+  PUT    /classes/{id}       - Sửa lớp
+  DELETE /classes/{id}       - Xóa lớp
+  GET    /classes/{id}/students - Lấy danh sách SV trong lớp
+
+TEACHER CLASS (/api/teacher-class):
+  GET  /{classId}/pending-students        - Lấy danh sách SV chờ duyệt
+  POST /approve-student                   - Duyệt SV vào lớp
+  POST /reject-student                    - Từ chối SV
+  POST /{classId}/import-students         - Import SV từ file Excel
+
+STUDENT CLASS (/api/student-class):
+  POST /join                              - SV xin vào lớp
+  DELETE /student/quit/{classId}          - SV rời lớp
+  PUT  /face-registered                   - Đánh dấu đã đăng ký mặt
+  GET  /me                                - Lấy thông tin SV hiện tại
+
+ATTENDANCE (/api/attendance):
+  POST /create                            - Tạo buổi điểm danh
+  GET  /{classId}?date=...                - Lấy danh sách điểm danh theo ngày
+  GET  /{attendanceId}/attended-students  - Lấy SV đã điểm danh
+  POST /checkin                           - SV điểm danh (tự động)
+  PUT  /manual                            - Điểm danh thủ công
+  POST /{id}/mark-all-present             - Đánh dấu tất cả có mặt
+  POST /{id}/teacher-checkin              - GV điểm danh cho SV
+
+NOTIFICATION (/api/notifications):
+  GET  /                     - Lấy tất cả thông báo
+  PUT  /{id}/read            - Đánh dấu đã đọc
+  PUT  /read-all             - Đánh dấu tất cả đã đọc
+
+ADMIN (/api/admin):
+  GET    /users                        - Lấy tất cả users
+  GET    /stats                        - Thống kê hệ thống
+  POST   /create-user                  - Tạo user (admin)
+  POST   /import-excel                 - Import users từ Excel
+  PUT    /face/{username}/approve      - Duyệt khuôn mặt
+  PUT    /face/{username}/reject       - Từ chối khuôn mặt
+  GET    /classes                      - Lấy tất cả classes
+  GET    /classes/{id}/students        - Lấy SV trong class
+  DELETE /classes/{id}                 - Xóa class
+  PUT    /users/{username}/reset-password - Reset mật khẩu
+  DELETE /users/{username}             - Xóa user
+
+--- Bảo mật ---
+- JWT Authentication: Token được gửi qua header Authorization: Bearer <token>
+- Roles: ROLE_ADMIN, ROLE_TEACHER, ROLE_STUDENT
+- OTP qua Email: Khi đăng ký, hệ thống gửi OTP qua Gmail SMTP
+
+================================================================================
+  PHẦN 3: FRONTEND (React/Vite)
+================================================================================
+
+Thư mục: /frontend/
+Ngôn ngữ: JavaScript (JSX)
+Framework: React 18 + Vite 5
+CSS: TailwindCSS 3.4
+Port mặc định: 5173
+
+--- Cây thư mục ---
+
+frontend/src/
+├── main.jsx          # Entry point React
+├── App.jsx           # Router chính
+├── App.css           # Global styles
+├── index.css         # Tailwind imports
+├── assets/
+│   └── react.svg
+├── pages/            # Các trang chính
+│   ├── Login.jsx              # Trang đăng nhập
+│   ├── Register.jsx           # Trang đăng ký tài khoản
+│   ├── VerifyOtp.jsx          # Trang nhập OTP xác thực
+│   ├── Dashboard.jsx          # Dashboard cho Teacher/Student
+│   ├── ClassDetail.jsx        # Chi tiết lớp học (điểm danh, danh sách SV, etc.)
+│   ├── AdminDashboard.jsx     # Dashboard admin (quản lý user, class)
+│   ├── FaceRegistration.jsx   # Trang đăng ký khuôn mặt
+│   └── Profile.jsx            # Trang hồ sơ cá nhân
+└── services/
+    └── api.js        # Axios API client (gọi Backend + AI API)
+
+--- Dependencies ---
+- react (18.2)        : UI library
+- react-dom (18.2)    : DOM rendering
+- react-router-dom (6.30) : Client-side routing
+- axios (1.6.7)       : HTTP client
+- lucide-react        : Icon library
+- tailwindcss (3.4)   : CSS framework
+- vite (5.1)          : Build tool
+
+--- Routes ---
+/               → Redirect to /login
+/login          → Trang đăng nhập
+/register       → Trang đăng ký
+/verify-otp     → Xác thực OTP
+/dashboard      → Dashboard (Teacher/Student, tuỳ role)
+/class/:classId → Chi tiết lớp học
+/admin          → Admin Dashboard
+/register-face  → Đăng ký khuôn mặt
+/*              → Redirect to /login (fallback)
+
+--- Mô tả các trang ---
+
+1. Login.jsx: Form đăng nhập (username/password). Sau khi login thành công,
+   lưu JWT token + role vào localStorage, redirect theo role.
+
+2. Register.jsx: Form đăng ký (username, password, email, fullName, role).
+   Sau khi submit, redirect sang VerifyOtp.
+
+3. VerifyOtp.jsx: Nhập mã OTP (6 số) được gửi qua email. Sau khi verify
+   thành công, redirect sang login.
+
+4. Dashboard.jsx: Dashboard chung cho Teacher và Student.
+   - Teacher: Hiển thị danh sách lớp, tạo lớp mới
+   - Student: Hiển thị danh sách lớp đã tham gia, xin vào lớp mới
+
+5. ClassDetail.jsx: Trang chi tiết lớp học (file lớn nhất ~39KB).
+   - Teacher view: Quản lý SV, duyệt yêu cầu, tạo buổi điểm danh,
+     xem lịch sử điểm danh, import SV từ Excel
+   - Student view: Xem điểm danh, checkin (qua face recognition)
+
+6. AdminDashboard.jsx: Dashboard admin.
+   - Quản lý users (tạo, xóa, reset password)
+   - Quản lý classes
+   - Import users từ Excel
+   - Thống kê hệ thống
+   - Duyệt/từ chối đăng ký khuôn mặt
+
+7. FaceRegistration.jsx: Trang đăng ký khuôn mặt.
+   - Kết nối WebSocket tới AI API
+   - Stream webcam → AI xử lý → Lưu face embedding
+   - Hiển thị kết quả real-time
+
+8. Profile.jsx: Trang hồ sơ cá nhân.
+   - Xem/sửa thông tin (fullName, birth)
+   - Đổi mật khẩu
+   - Upload avatar
+
+================================================================================
+  LUỒNG HOẠT ĐỘNG CHÍNH
+================================================================================
+
+1. ĐĂNG KÝ TÀI KHOẢN:
+   User → Register → Nhập thông tin → Backend tạo account (enabled=false)
+   → Gửi OTP qua email → User nhập OTP → Backend verify → enabled=true
+   → Redirect Login
+
+2. ĐĂNG NHẬP:
+   User → Login → Backend validate → Trả JWT token + role
+   → Frontend lưu token → Redirect Dashboard
+
+3. ĐĂNG KÝ KHUÔN MẶT (Student):
+   Student → FaceRegistration → WebSocket tới AI API → Stream webcam
+   → AI detect face → Trích xuất embedding → Lưu vào Milvus DB
+   → Đánh dấu face_registered=true
+
+4. ĐIỂM DANH:
+   a) Teacher tạo buổi điểm danh (chọn lớp, ngày giờ)
+   b) Student mở trang ClassDetail → Bấm "Check in"
+   c) Frontend kết nối AI API → Stream webcam → AI verify face
+   d) AI trả kết quả (match/not match + student_id)
+   e) Frontend gửi kết quả điểm danh lên Backend
+   f) Backend lưu record StudentAttendance
+
+5. QUẢN LÝ LỚP HỌC:
+   - Teacher tạo lớp → Student xin vào (PENDING) → Teacher duyệt (APPROVED)
+   - Teacher có thể import danh sách SV từ file Excel
+   - Teacher xem lịch sử điểm danh, xuất báo cáo
+
+================================================================================
+  CÁCH CHẠY DỰ ÁN
+================================================================================
+
+Yêu cầu: Python 3.x, Java 21, Node.js, MySQL
+
+1) Khởi tạo Database:
+   - Tạo database MySQL "pbl5" (hoặc import file pbl5-mysql-workbench.sql)
+   - Cấu hình connection trong backend/src/main/resources/application.properties
+
+2) Chạy AI API:
+   cd ai
+   python -m venv .venv
+   source .venv/bin/activate       # Linux/Mac
+   .venv\Scripts\activate          # Windows
+   pip install -r requirements.txt
+   PYTHONPATH=src python src/api/app.py
+   → http://127.0.0.1:8000
+
+3) Chạy Backend:
+   cd backend
+   ./mvnw spring-boot:run          # Linux/Mac
+   mvnw.cmd spring-boot:run        # Windows
+   → http://127.0.0.1:8080
+
+4) Chạy Frontend:
+   cd frontend
+   npm install
+   npm run dev
+   → http://127.0.0.1:5173
+
+================================================================================
+  CÔNG NGHỆ SỬ DỤNG (TECH STACK)
+================================================================================
+
+| Thành phần     | Công nghệ                                              |
+|----------------|--------------------------------------------------------|
+| Frontend       | React 18, Vite 5, TailwindCSS 3.4, Axios, React Router |
+| Backend        | Java 21, Spring Boot 4.0.3, Spring Security, JPA, JWT  |
+| AI/ML          | Python, FastAPI, InsightFace, ONNX, DeepFace            |
+| Database       | MySQL (relational), Milvus Lite (vector DB)             |
+| Authentication | JWT + OTP via Email (Gmail SMTP)                        |
+| Face Detection | InsightFace (detection + embedding extraction)          |
+| Anti-Spoofing  | DeepFace (liveness detection)                           |
+| Embedding DB   | Milvus (cosine similarity search)                       |
+| Excel I/O      | Apache POI (server-side)                                |
+| Build Tools    | Maven (backend), Vite (frontend), pip (AI)              |
+
+================================================================================
+  GHI CHÚ QUAN TRỌNG
+================================================================================
+
+- Hệ thống có 3 role: ADMIN, TEACHER, STUDENT
+- JWT token được gửi trong header "Authorization: Bearer <token>"
+- Frontend gọi Backend API qua http://localhost:8080/api
+- Frontend gọi AI API trực tiếp qua http://127.0.0.1:8000
+- Face embeddings được lưu trong Milvus vector database (không phải MySQL)
+- Anti-spoofing giúp chống gian lận bằng ảnh/video giả
+- Hệ thống hỗ trợ import danh sách sinh viên từ file Excel
+- OTP được gửi qua Gmail SMTP khi đăng ký tài khoản
+- Spring Security bảo vệ các endpoint theo role
+- Hibernate ddl-auto=update (tự tạo/cập nhật bảng DB)
+
+================================================================================

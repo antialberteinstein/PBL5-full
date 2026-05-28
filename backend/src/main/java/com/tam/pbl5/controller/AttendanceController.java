@@ -2,10 +2,10 @@ package com.tam.pbl5.controller;
 
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
 import com.tam.pbl5.dto.request.TeacherCheckinRequest;
-import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
+import com.tam.pbl5.dto.response.AttendedStudentResponse;
+import com.tam.pbl5.dto.response.StudentAttendanceReportDTO; // Import DTO báo cáo
 import com.tam.pbl5.dto.response.TeacherCheckinResponse;
 import com.tam.pbl5.entity.Attendance;
-import com.tam.pbl5.entity.Student;
 import com.tam.pbl5.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -82,7 +82,6 @@ public class AttendanceController {
             @PathVariable Integer attendanceId,
             @RequestHeader("Authorization") String token) {
         try {
-            // ✨ ĐÃ SỬA: Chuyển từ List<Student> sang List<AttendedStudentResponse>
             List<AttendedStudentResponse> response = attendanceService.getAttendedStudents(attendanceId, token);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -98,8 +97,8 @@ public class AttendanceController {
             @PathVariable Integer attendanceId,
             @RequestHeader("Authorization") String token) {
         try {
-            // Danh sách vắng vẫn trả về List<Student> vì chưa có thông tin điểm danh (nên không có ảnh)
-            List<Student> students = attendanceService.getAbsentStudents(attendanceId, token);
+            // ✨ ĐÃ SỬA: Đổi List<Student> thành List<AttendedStudentResponse>
+            List<AttendedStudentResponse> students = attendanceService.getAbsentStudents(attendanceId, token);
             return ResponseEntity.ok(students);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -138,6 +137,39 @@ public class AttendanceController {
                     token
             );
             return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // 7. API LẤY KẾT QUẢ ĐIỂM DANH CÁ NHÂN
+    // ==========================================
+    @GetMapping("/report/{classId}")
+    public ResponseEntity<?> getStudentAttendanceReport(
+            @PathVariable Integer classId,
+            @RequestParam Integer studentId,
+            @RequestHeader("Authorization") String token) {
+        try {
+            List<StudentAttendanceReportDTO> report = attendanceService.getStudentAttendanceReport(classId, studentId, token);
+            return ResponseEntity.ok(report);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // 8. API GIÁO VIÊN HỦY ĐIỂM DANH (BỎ TICK CÓ MẶT)
+    // ==========================================
+    @DeleteMapping("/{attendanceId}/remove-checkin/{studentUsername}")
+    public ResponseEntity<?> removeCheckin(
+            @PathVariable Integer attendanceId,
+            @PathVariable String studentUsername,
+            @RequestHeader("Authorization") String token) {
+        try {
+            // Gọi sang service để xóa bản ghi điểm danh
+            String message = attendanceService.removeCheckin(attendanceId, studentUsername, token);
+            return ResponseEntity.ok(message);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

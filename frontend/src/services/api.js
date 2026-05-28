@@ -19,7 +19,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ─── Interceptor: xử lý 401 (hết hạn token) ──────────────────────────────────
+// ─── Interceptor: xử lý 401 (hết hạn token) ────────────────────────────────
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -74,8 +74,6 @@ export const classAPI = {
   rejectRequest: (classId, mssv) =>
     api.post("/teacher-class/reject-student", { classId, mssv }),
 
-  // ✨ THÊM MỚI Ở ĐÂY: API Cho Giáo viên Import danh sách sinh viên từ Excel
-  /** POST /api/teacher-class/:classId/import-students */
   importStudentsExcel: (classId, formData) =>
     api.post(`/teacher-class/${classId}/import-students`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
@@ -104,11 +102,24 @@ export const attendanceAPI = {
     api.get(`/attendance/${classId}`, { params: { date } }),
   getAttendedStudents: (attendanceId) =>
     api.get(`/attendance/${attendanceId}/attended-students`),
+
+  // API xem danh sách vắng
+  getAbsentStudents: (attendanceId) =>
+    api.get(`/attendance/${attendanceId}/absent-students`),
+
   manualCheckin: (data) => api.put("/attendance/manual", data),
   markAllPresent: (attendanceId) =>
     api.post(`/attendance/${attendanceId}/mark-all-present`),
   teacherCheckin: (attendanceId, data) =>
     api.post(`/attendance/${attendanceId}/teacher-checkin`, data),
+
+  // API mới: Lấy báo cáo cá nhân
+  getStudentAttendanceReport: (classId, studentId) =>
+    api.get(`/attendance/report/${classId}`, { params: { studentId } }),
+
+  // ✨ API MỚI: XÓA ĐIỂM DANH (BỎ TICK)
+  removeCheckin: (attendanceId, studentUsername) =>
+    api.delete(`/attendance/${attendanceId}/remove-checkin/${studentUsername}`),
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -128,16 +139,20 @@ export const adminAPI = {
   getStats: () => api.get("/admin/stats"),
   approveFace: (username) => api.put(`/admin/face/${username}/approve`),
   rejectFace: (username) => api.put(`/admin/face/${username}/reject`),
-
-  // ✨ THÊM MỚI Ở ĐÂY: Các API dành riêng cho Admin tạo tài khoản
-  /** POST /api/admin/create-user */
   createUser: (data) => api.post("/admin/create-user", data),
-
-  /** POST /api/admin/import-excel */
   importExcel: (formData) =>
     api.post("/admin/import-excel", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+
+  getAllClasses: () => api.get("/admin/classes"),
+  getStudentsInClass: (classId) =>
+    api.get(`/admin/classes/${classId}/students`),
+  deleteClass: (classId) => api.delete(`/admin/classes/${classId}`),
+
+  resetPassword: (username, newPassword) =>
+    api.put(`/admin/users/${username}/reset-password`, { newPassword }),
+  deleteUser: (username) => api.delete(`/admin/users/${username}`),
 };
 
 export default api;

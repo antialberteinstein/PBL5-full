@@ -1,11 +1,10 @@
 package com.tam.pbl5.service;
 
 import java.util.List;
-import java.util.stream.Collectors;
+ import java.util.stream.Collectors; // Không cần dùng cái này nữa
 import com.tam.pbl5.dto.request.ClassCreateRequest;
+import com.tam.pbl5.dto.response.StudentInClassProjection; // LƯU Ý: Thêm import Projection
 import com.tam.pbl5.entity.Clazz;
-import com.tam.pbl5.entity.Student;
-import com.tam.pbl5.entity.StudentClass;
 import com.tam.pbl5.entity.Teacher;
 import com.tam.pbl5.repository.ClassRepository;
 import com.tam.pbl5.repository.TeacherRepository;
@@ -70,25 +69,16 @@ public class ClazzService {
                 .orElseThrow(() -> new RuntimeException("Lỗi: Lớp học không tồn tại!"));
     }
 
-
-
-    public List<Student> getApprovedStudentsInClass(Integer classId, String token) {
+    // ĐÃ SỬA: Đổi kiểu trả về từ List<Student> thành List<StudentInClassProjection>
+    public List<StudentInClassProjection> getApprovedStudentsInClass(Integer classId, String token) {
         // 1. Xác thực Token (Đảm bảo người gọi API đã đăng nhập)
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
         }
         jwtService.extractUsername(token); // Lỗi sẽ tự văng ra nếu token sai/hết hạn
 
-        // 2. Tìm danh sách các bản ghi của lớp này nhưng CHỈ LẤY trạng thái APPROVED
-        List<StudentClass> approvedRecords = studentClassRepository.findByClassIdAndStatus(classId, "APPROVED");
-
-        // 3. Trích xuất ra một danh sách chỉ chứa ID của các sinh viên đó
-        List<Integer> studentIds = approvedRecords.stream()
-                .map(StudentClass::getStudentId)
-                .collect(Collectors.toList());
-
-        // 4. Dùng danh sách ID để chọc vào bảng Student lấy ra thông tin chi tiết
-        return studentRepository.findAllById(studentIds);
-        }
+        // 2. Gọi thẳng hàm Native Query nối 4 bảng để lấy ra danh sách có chứa fullName
+        return studentClassRepository.findStudentsByClassAndStatus(classId, "APPROVED");
+    }
 
 }

@@ -5,8 +5,9 @@ import com.tam.pbl5.service.AdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-// DÒNG IMPORT ĐƯỢC THÊM VÀO ĐỂ SỬA LỖI MULTIPARTFILE
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -15,24 +16,100 @@ public class AdminController {
 
     private final AdminService adminService;
 
-    // API: POST /api/admin/create-user
+    // ==========================================
+    // API CŨ: TẠO VÀ IMPORT NGƯỜI DÙNG
+    // ==========================================
     @PostMapping("/create-user")
     public ResponseEntity<?> createUser(@RequestBody AdminCreateUserRequest request) {
         try {
-            // Đẩy dữ liệu từ Controller xuống Service xử lý
             String message = adminService.adminCreateUser(request);
-            return ResponseEntity.ok(message); // Trả về thông báo thành công (HTTP 200)
+            return ResponseEntity.ok(message);
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage()); // Trả về lỗi nếu trùng username/email (HTTP 400)
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
-    // API: POST /api/admin/import-excel
     @PostMapping("/import-excel")
-    public ResponseEntity<?> importExcel(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<?> importExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("role") String role) { // Nhận role từ FormData
         try {
-            String result = adminService.importUsersFromExcel(file);
+            String result = adminService.importUsersFromExcel(file, role);
             return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // ✨ CÁC API MỚI: QUẢN LÝ LỚP HỌC
+    // ==========================================
+
+    // Lấy danh sách toàn bộ lớp học
+    @GetMapping("/classes")
+    public ResponseEntity<?> getAllClasses() {
+        try {
+            return ResponseEntity.ok(adminService.getAllClasses());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Xem danh sách sinh viên trong 1 lớp
+    @GetMapping("/classes/{classId}/students")
+    public ResponseEntity<?> getStudentsInClass(@PathVariable Integer classId) {
+        try {
+            return ResponseEntity.ok(adminService.getStudentsInClass(classId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Xóa một lớp học
+    @DeleteMapping("/classes/{classId}")
+    public ResponseEntity<?> deleteClass(@PathVariable Integer classId) {
+        try {
+            return ResponseEntity.ok(adminService.deleteClass(classId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // ✨ CÁC API MỚI: QUẢN LÝ TÀI KHOẢN (USER)
+    // ==========================================
+
+    // Xem danh sách toàn bộ tài khoản
+    @GetMapping("/users")
+    public ResponseEntity<?> getAllUsers() {
+        try {
+            return ResponseEntity.ok(adminService.getAllUsers());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Đặt lại mật khẩu (Nhận JSON Body: {"newPassword": "..."})
+    @PutMapping("/users/{username}/reset-password")
+    public ResponseEntity<?> resetPassword(
+            @PathVariable String username,
+            @RequestBody Map<String, String> payload) {
+        try {
+            String newPassword = payload.get("newPassword");
+            if (newPassword == null || newPassword.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Lỗi: Mật khẩu mới không được để trống!");
+            }
+            return ResponseEntity.ok(adminService.resetUserPassword(username, newPassword));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Xóa một tài khoản khỏi hệ thống
+    @DeleteMapping("/users/{username}")
+    public ResponseEntity<?> deleteUser(@PathVariable String username) {
+        try {
+            return ResponseEntity.ok(adminService.deleteUser(username));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

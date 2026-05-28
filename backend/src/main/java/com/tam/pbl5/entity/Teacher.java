@@ -14,6 +14,7 @@ public class Teacher {
     @Column(length = 50)
     private String username;
 
-    @Column(name = "msgv", nullable = false, unique = true) // ✨ Khớp với database
+    // ✨ ĐÃ SỬA: Xóa nullable = false để cho phép null, vẫn giữ lại unique = true nếu muốn tránh trùng lặp
+    @Column(name = "msgv", unique = true)
     private String msgv;
 }
