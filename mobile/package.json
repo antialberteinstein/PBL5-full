@@ -1,0 +1,33 @@
+{
+  "name": "pbl5-mobile",
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "lan": "expo start --lan"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/native": "^7.0.14",
+    "@react-navigation/native-stack": "^7.2.0",
+    "axios": "^1.7.7",
+    "buffer": "^6.0.3",
+    "expo": "~54.0.0",
+    "expo-asset": "~12.0.0",
+    "expo-camera": "~17.0.0",
+    "expo-file-system": "~19.0.0",
+    "expo-status-bar": "~3.0.0",
+    "js-yaml": "^4.1.0",
+    "react": "19.1.0",
+    "react-native": "0.81.4",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-screens": "~4.11.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "babel-preset-expo": "~54.0.0"
+  },
+  "private": true
+}

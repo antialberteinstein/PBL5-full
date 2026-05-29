@@ -5,9 +5,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * DTO dùng để hứng dữ liệu khi Teacher gửi yêu cầu tạo lớp học mới.
- * Khang lưu ý: Chúng ta chỉ truyền 'name' từ Client lên.
- * 'teacherId' sẽ được Server tự động bóc tách từ Token để đảm bảo bảo mật.
+ * DTO dùng để hứng dữ liệu khi Admin gửi yêu cầu tạo lớp học mới.
+ * Khang lưu ý: 'teacherId' sẽ được truyền từ Client lên do Admin chỉ định.
  */
 @Data
 @AllArgsConstructor
@@ -15,5 +14,6 @@ import lombok.NoArgsConstructor;
 public class ClassCreateRequest {
 
     private String name; // Tên của lớp học (ví dụ: Lập trình Java cơ bản)
+    private Integer teacherId; // ID giáo viên được Admin gán
 
 }

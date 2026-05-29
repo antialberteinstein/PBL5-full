@@ -1,10 +1,11 @@
 package com.tam.pbl5.dto.request;
 
 import lombok.Data;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Data
 public class ProfileUpdateRequest {
-    private LocalDateTime birth;
+    private LocalDate birth;
     private String fullName;
+    private String phone;
 }

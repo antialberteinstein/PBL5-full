@@ -2,6 +2,7 @@ package com.tam.pbl5.controller;
 
 import com.tam.pbl5.dto.request.AdminCreateUserRequest;
 import com.tam.pbl5.service.AdminService;
+import com.tam.pbl5.service.ImportJobService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ import java.util.Map;
 public class AdminController {
 
     private final AdminService adminService;
+    private final ImportJobService importJobService;
 
     // ==========================================
     // API CŨ: TẠO VÀ IMPORT NGƯỜI DÙNG
@@ -29,13 +31,36 @@ public class AdminController {
         }
     }
 
+    /**
+     * Khởi tạo job import (chạy nền) - trả về ngay ID + trạng thái ban đầu để FE poll.
+     */
     @PostMapping("/import-excel")
     public ResponseEntity<?> importExcel(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("role") String role) { // Nhận role từ FormData
+            @RequestParam("role") String role) {
         try {
-            String result = adminService.importUsersFromExcel(file, role);
-            return ResponseEntity.ok(result);
+            byte[] bytes = file.getBytes();
+            return ResponseEntity.ok(importJobService.startImport(bytes, role));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    /** Liệt kê các job import gần đây (để FE rehydrate sau khi reload/đăng nhập lại). */
+    @GetMapping("/import-jobs")
+    public ResponseEntity<?> listImportJobs() {
+        try {
+            return ResponseEntity.ok(importJobService.listJobs());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    /** Trạng thái + tiến trình của một job (frontend poll endpoint này). */
+    @GetMapping("/import-jobs/{id}")
+    public ResponseEntity<?> getImportJob(@PathVariable String id) {
+        try {
+            return ResponseEntity.ok(importJobService.getJob(id));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -84,6 +109,36 @@ public class AdminController {
     public ResponseEntity<?> getAllUsers() {
         try {
             return ResponseEntity.ok(adminService.getAllUsers());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Lấy thống kê hệ thống
+    @GetMapping("/stats")
+    public ResponseEntity<?> getStats() {
+        try {
+            return ResponseEntity.ok(adminService.getSystemStats());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Danh sách sinh viên (tab Quản lý sinh viên)
+    @GetMapping("/students")
+    public ResponseEntity<?> getAllStudents() {
+        try {
+            return ResponseEntity.ok(adminService.getAllStudents());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // Danh sách giáo viên (tab Quản lý giáo viên)
+    @GetMapping("/teachers")
+    public ResponseEntity<?> getAllTeachers() {
+        try {
+            return ResponseEntity.ok(adminService.getAllTeachers());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

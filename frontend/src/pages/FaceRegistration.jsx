@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { studentAPI } from "../services/api";
+import { useNavigate, useLocation } from "react-router-dom";
+import { studentAPI, backendWsBase } from "../services/api";
+import { getToken } from "../utils/auth.js";
 
 const FaceRegistration = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isReregister =
+    new URLSearchParams(location.search).get("mode") === "reregister";
   const currentUsername = localStorage.getItem("username") || "";
 
   // Các State quản lý giao diện
@@ -72,13 +76,26 @@ const FaceRegistration = () => {
   };
 
   // 2. Hàm bắt đầu Đăng ký (Kết nối WebSocket)
-  const handleStartRegistration = () => {
+  const handleStartRegistration = async () => {
     setStatus("CONNECTING");
     setErrorMsg("");
 
-    const faceBase = import.meta.env.VITE_FACE_API_BASE || "http://127.0.0.1:8000";
-    const wsUrl = `${faceBase.replace(/^http/, "ws").replace(/\/$/, "")}/ws/register_stream?student_id=${currentUsername}`;
-    
+    // Khi đăng ký lại: tạm gỡ cờ ở backend để dashboard phản ánh đúng trạng thái
+    // nếu sinh viên thoát giữa chừng. Cờ sẽ được set lại khi COMPLETE.
+    if (isReregister) {
+      try {
+        await studentAPI.markFaceRegistered(false);
+      } catch (err) {
+        console.warn("[register_stream] markFaceRegistered(false) failed", err);
+      }
+    }
+
+    const token = getToken();
+    const wsBase = `${backendWsBase}/ws/register_stream`;
+    const wsUrl = isReregister
+      ? `${wsBase}?student_id=${currentUsername}&reregister=true&token=${token}`
+      : `${wsBase}?student_id=${currentUsername}&token=${token}`;
+
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
 
@@ -193,9 +210,9 @@ const FaceRegistration = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
-    // Giảm kích thước frame để tối ưu tốc độ gửi
-    canvas.width = 112;
-    canvas.height = 112;
+    // Giảm kích thước frame để tối ưu tốc độ gửi (đủ lớn cho pose estimation chính xác)
+    canvas.width = 224;
+    canvas.height = 224;
     
     // Vẽ khung hình từ video lên canvas (tự scale)
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -223,9 +240,13 @@ const FaceRegistration = () => {
           <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
         </div>
         
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Đăng ký khuôn mặt</h2>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">
+          {isReregister ? "Đăng ký lại khuôn mặt" : "Đăng ký khuôn mặt"}
+        </h2>
         <p className="text-sm text-gray-500 text-center mb-6 px-4">
-          Hệ thống cần thu thập dữ liệu khuôn mặt để phục vụ việc điểm danh tự động.
+          {isReregister
+            ? "Dữ liệu khuôn mặt cũ sẽ bị xóa và thay thế bằng dữ liệu mới sau khi thu thập xong."
+            : "Hệ thống cần thu thập dữ liệu khuôn mặt để phục vụ việc điểm danh tự động."}
         </p>
 
         {/* Khung Camera */}
@@ -300,7 +321,7 @@ const FaceRegistration = () => {
             onClick={handleStartRegistration}
             className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 shadow-md transition-transform transform hover:scale-[1.02]"
           >
-            Bắt đầu thu thập dữ liệu
+            {isReregister ? "Bắt đầu đăng ký lại" : "Bắt đầu thu thập dữ liệu"}
           </button>
         )}
 

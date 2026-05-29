@@ -101,3 +101,7 @@ class ClassificationPipeline:
         
         # Classifier.fit will handle adding these to the Milvus DB
         self.classifier.fit(student_id, processed_embs)
+
+    def delete_student(self, student_id: str) -> int:
+        """Remove all embeddings for a student from the DB."""
+        return self.classifier.delete_student(student_id)

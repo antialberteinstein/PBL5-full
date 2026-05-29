@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-CAMERA_CLIENT = "http"
+CAMERA_CLIENT = "opencv"
 LCD_ESP32_IP = "172.20.10.3"
-ENABLE_LCD = True
+ENABLE_LCD = False

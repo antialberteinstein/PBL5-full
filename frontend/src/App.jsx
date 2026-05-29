@@ -6,41 +6,94 @@ import {
   Navigate,
 } from "react-router-dom";
 
-// Import các trang chính
 import Login from "./pages/Login.jsx";
-import Register from "./pages/Register.jsx";
-import VerifyOtp from "./pages/VerifyOtp.jsx";
 import ClassDetail from "./pages/ClassDetail.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
-
-// ✨ THÊM MỚI Ở ĐÂY: Import 2 trang quan trọng còn thiếu
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import FaceRegistration from "./pages/FaceRegistration.jsx";
 import Profile from "./pages/Profile";
+
+import Forbidden403 from "./pages/errors/Forbidden403.jsx";
+import NotFound404 from "./pages/errors/NotFound404.jsx";
+import Unauthorized401 from "./pages/errors/Unauthorized401.jsx";
+import ServerError500 from "./pages/errors/ServerError500.jsx";
+
+import {
+  RequireAuth,
+  RequireRole,
+  RedirectIfAuthed,
+} from "./components/RouteGuards.jsx";
+
 function App() {
   return (
     <Router>
       <Routes>
-        {/* 1. Trang mặc định khi mở web sẽ vào Login */}
-        <Route path="/" element={<Navigate to="/login" />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
 
-        {/* 2. Các Route chính */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/verify-otp" element={<VerifyOtp />} />
+        <Route
+          path="/login"
+          element={
+            <RedirectIfAuthed>
+              <Login />
+            </RedirectIfAuthed>
+          }
+        />
 
-        {/* Route chi tiết lớp học */}
-        <Route path="/class/:classId" element={<ClassDetail />} />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireRole allow={["TEACHER", "STUDENT"]}>
+              <Dashboard />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <RequireRole allow={["TEACHER", "STUDENT"]}>
+              <Profile />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/class/:classId"
+          element={
+            <RequireRole allow={["TEACHER", "STUDENT"]}>
+              <ClassDetail />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/register-face"
+          element={
+            <RequireRole allow={["STUDENT"]}>
+              <FaceRegistration />
+            </RequireRole>
+          }
+        />
 
-        {/* Route Dashboard cho Teacher/Student */}
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route
+          path="/admin"
+          element={
+            <RequireRole allow={["ADMIN"]}>
+              <AdminDashboard />
+            </RequireRole>
+          }
+        />
 
-        {/* ✨ THÊM MỚI Ở ĐÂY: Khai báo "điểm đến" cho Admin và Đăng ký mặt */}
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/register-face" element={<FaceRegistration />} />
+        <Route path="/401" element={<Unauthorized401 />} />
+        <Route path="/403" element={<Forbidden403 />} />
+        <Route path="/500" element={<ServerError500 />} />
+        <Route path="/404" element={<NotFound404 />} />
 
-        {/* 3. Route dự phòng: Nếu gõ bừa đường dẫn sẽ tự về Login */}
-        <Route path="*" element={<Navigate to="/login" />} />
+        <Route
+          path="*"
+          element={
+            <RequireAuth>
+              <NotFound404 />
+            </RequireAuth>
+          }
+        />
       </Routes>
     </Router>
   );

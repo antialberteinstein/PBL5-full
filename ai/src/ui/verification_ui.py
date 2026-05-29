@@ -70,7 +70,13 @@ class VerificationUI:
                         if self.allowed_student_ids_ref is not None:
                             with self.allowed_student_ids_ref["lock"]:
                                 allowed_ids = list(self.allowed_student_ids_ref["values"])
-                        results = self.service.verify(frame_copy, allowed_student_ids=allowed_ids)
+                                
+                        if allowed_ids is not None and len(allowed_ids) == 1 and allowed_ids[0] == "????":
+                            # Skip recognition to save CPU when no active allowlist
+                            results = []
+                        else:
+                            results = self.service.verify(frame_copy, allowed_student_ids=allowed_ids)
+                            
                         with self._results_lock:
                             self._latest_results = results
                     except Exception as e:
@@ -82,6 +88,11 @@ class VerificationUI:
         
         while True:
             if self.stop_event is not None and self.stop_event.is_set():
+                self._stop_event.set()
+                break
+                
+            from api.bridges.ui.ui_runner import _task_queue
+            if not _task_queue.empty():
                 self._stop_event.set()
                 break
             frame = camera.capture_frame()
@@ -116,7 +127,13 @@ class VerificationUI:
                         if now - last_emit >= self.emit_interval_sec:
                             self._last_emit[student_id] = now
                             try:
-                                self.on_match(student_id, res.get("score"), frame_for_emit)
+                                self.on_match(
+                                    student_id,
+                                    res.get("score"),
+                                    frame_for_emit,
+                                    res.get("is_real", True),
+                                    res.get("antispoof_score"),
+                                )
                             except Exception as e:
                                 logging.error("on_match callback failed: %s", e)
             

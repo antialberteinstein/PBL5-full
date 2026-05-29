@@ -1,31 +1,50 @@
 import axios from "axios";
+import { getToken, clearSession } from "../utils/auth.js";
 
 const api = axios.create({
   baseURL: "http://localhost:8080/api",
   timeout: 10000,
 });
 
-const faceApi = axios.create({
-  baseURL: import.meta.env.VITE_FACE_API_BASE || "http://127.0.0.1:8000",
-  timeout: 300000,
-});
+// Base URL for backend WebSocket endpoints (ws:// or wss://)
+export const backendWsBase = (() => {
+  const base = import.meta.env.VITE_BACKEND_BASE || "http://localhost:8080";
+  return base.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://").replace(/\/$/, "");
+})();
 
 // ─── Interceptor: tự động gắn Bearer token ───────────────────────────────────
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token = getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// ─── Interceptor: xử lý 401 (hết hạn token) ────────────────────────────────
+// ─── Interceptor: xử lý 401 / 403 / 5xx ─────────────────────────────────────
+// 401 = không có / hết hạn token  → wipe session + về /login
+// 403 = có token nhưng sai quyền  → giữ session, redirect tới /403
+// 5xx = lỗi server                → redirect /500 (chỉ khi đang ở route nội bộ)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.clear();
-      window.location.href = "/login";
+    const status = error.response?.status;
+    const path = window.location.pathname;
+    const errorRoutes = ["/login", "/401", "/403", "/404", "/500"];
+
+    if (status === 401) {
+      if (!errorRoutes.includes(path)) {
+        clearSession();
+        window.location.href = "/login";
+      }
+    } else if (status === 403) {
+      if (!errorRoutes.includes(path)) {
+        window.location.href = "/403";
+      }
+    } else if (status >= 500 && status < 600) {
+      if (!errorRoutes.includes(path)) {
+        window.location.href = "/500";
+      }
     }
     return Promise.reject(error);
   },
@@ -35,10 +54,7 @@ api.interceptors.response.use(
 // AUTH
 // ════════════════════════════════════════════════════════════════════════════
 export const authAPI = {
-  register: (data) => api.post("/auth/register", data),
   login: (data) => api.post("/auth/login", data),
-  verifyOtp: (data) => api.post("/auth/verify-otp", data),
-  resendOtp: (username) => api.post("/auth/resend-otp", { username }),
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -46,7 +62,7 @@ export const authAPI = {
 // ════════════════════════════════════════════════════════════════════════════
 export const userAPI = {
   getProfile: () => api.get("/users/me"),
-  updateProfile: (id, data) => api.patch(`/profiles/${id}`, data),
+  updateMyProfile: (data) => api.put("/users/me/profile", data),
   changePassword: (data) => api.put("/users/me/password", data),
   uploadFaceImage: (formData) =>
     api.post("/users/me/face", formData, {
@@ -59,9 +75,10 @@ export const userAPI = {
 // CLASS MANAGEMENT
 // ════════════════════════════════════════════════════════════════════════════
 export const classAPI = {
+  getAllClasses: () => api.get("/classes"),
   getMyClasses: () => api.get("/classes"),
   getClassById: (id) => api.get(`/classes/${id}`),
-  createClass: (data) => api.post("/classes", data),
+  createClass: (data) => api.post("/classes/create", data),
   updateClass: (id, data) => api.put(`/classes/${id}`, data),
   deleteClass: (id) => api.delete(`/classes/${id}`),
   getStudents: (classId) => api.get(`/classes/${classId}/students`),
@@ -87,7 +104,6 @@ export const studentAPI = {
   joinClass: (data) => api.post("/student-class/join", data),
   quitClass: (classId) => api.delete(`/student/quit/${classId}`),
   checkin: (data) => api.post("/attendance/checkin", data),
-  verifyLocalFace: (signal) => faceApi.post("/verify", {}, { signal }),
   markFaceRegistered: (registered = true) =>
     api.put("/student-class/face-registered", null, { params: { registered } }),
   getCurrentStudent: () => api.get("/student-class/me"),
@@ -120,6 +136,10 @@ export const attendanceAPI = {
   // ✨ API MỚI: XÓA ĐIỂM DANH (BỎ TICK)
   removeCheckin: (attendanceId, studentUsername) =>
     api.delete(`/attendance/${attendanceId}/remove-checkin/${studentUsername}`),
+
+  // RESET TOÀN BỘ ĐIỂM DANH CỦA 1 BUỔI (TEST/DEMO)
+  resetAttendance: (attendanceId) =>
+    api.post(`/attendance/${attendanceId}/reset`),
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -136,14 +156,19 @@ export const notificationAPI = {
 // ════════════════════════════════════════════════════════════════════════════
 export const adminAPI = {
   getAllUsers: () => api.get("/admin/users"),
+  getStudents: () => api.get("/admin/students"),
+  getTeachers: () => api.get("/admin/teachers"),
   getStats: () => api.get("/admin/stats"),
   approveFace: (username) => api.put(`/admin/face/${username}/approve`),
   rejectFace: (username) => api.put(`/admin/face/${username}/reject`),
   createUser: (data) => api.post("/admin/create-user", data),
+  getStats: () => api.get("/admin/stats"),
   importExcel: (formData) =>
     api.post("/admin/import-excel", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+  listImportJobs: () => api.get("/admin/import-jobs"),
+  getImportJob: (id) => api.get(`/admin/import-jobs/${id}`),
 
   getAllClasses: () => api.get("/admin/classes"),
   getStudentsInClass: (classId) =>
@@ -153,6 +178,32 @@ export const adminAPI = {
   resetPassword: (username, newPassword) =>
     api.put(`/admin/users/${username}/reset-password`, { newPassword }),
   deleteUser: (username) => api.delete(`/admin/users/${username}`),
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// CCTV / CAMERA (ADMIN)
+// ════════════════════════════════════════════════════════════════════════════
+export const cameraAPI = {
+  getCameras: () => api.get("/admin/cameras"),
+  createCamera: (data) => api.post("/admin/cameras", data),
+  updateCamera: (id, data) => api.put(`/admin/cameras/${id}`, data),
+  deleteCamera: (id) => api.delete(`/admin/cameras/${id}`),
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// ROOM & SCHEDULE
+// ════════════════════════════════════════════════════════════════════════════
+export const roomAPI = {
+  getAllRooms: () => api.get("/rooms"),
+  createRoom: (data) => api.post("/rooms", data),
+};
+
+export const scheduleAPI = {
+  getRoomSchedule: (roomId) => api.get(`/schedules/room/${roomId}`),
+  getClassSchedule: (classId) => api.get(`/schedules/class/${classId}`),
+  assignSchedule: (data) => api.post("/schedules", data),
+  deleteSchedule: (scheduleId) => api.delete(`/schedules/${scheduleId}`),
+  getCurrentCamera: (classId) => api.get(`/schedules/class/${classId}/current-camera`),
 };
 
 export default api;

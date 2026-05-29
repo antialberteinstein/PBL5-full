@@ -1,0 +1,35 @@
+# ──────────────────────────────────────────────────────────────
+# PBL5 Mobile — runtime configuration
+# This file is bundled with the app and loaded automatically
+# at startup by src/config/index.js.
+#
+# Update host/port to match the LAN IP of the machine running
+# the Spring Boot backend, then rebuild / reload the app.
+# ──────────────────────────────────────────────────────────────
+
+backend:
+  # LAN IPv4 of the machine running Spring Boot (NOT "localhost")
+  host: "192.168.1.227"
+  port: 8080
+  scheme: "http"          # http | https
+  wsScheme: "ws"          # ws  | wss
+  apiPath: "/api"         # REST prefix
+  timeoutMs: 10000
+
+# Optional: pin a fallback host for the AI server, only used if you
+# decide to bypass the backend proxy. Leave commented out otherwise.
+# ai:
+#   host: "192.168.1.10"
+#   port: 8000
+#   wsScheme: "ws"
+
+app:
+  # Allow signing in as these roles only. ADMIN is intentionally
+  # blocked on mobile — admin work belongs on the web dashboard.
+  allowedRoles: ["STUDENT", "TEACHER"]
+
+face:
+  # Frame cadence for face registration upload (ms).
+  captureIntervalMs: 450
+  jpegQuality: 0.6
+  frameSize: 320

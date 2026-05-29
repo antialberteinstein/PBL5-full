@@ -73,7 +73,7 @@ class RegistrationUI:
                     
                     if main_face:
                         box = main_face.bbox
-                        db_id = self.service.check_already_registered(frame_raw, box)
+                        db_id = self.service.check_already_registered(main_face.embedding)
                         
                         if db_id:
                             current_time = time.time()

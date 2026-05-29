@@ -29,7 +29,12 @@ public class ProfileService {
             existingProfile.setBirth(request.getBirth());
         }
 
-        // 4. Lưu thay đổi
+        // 4. Cập nhật số điện thoại (giáo viên)
+        if (request.getPhone() != null) {
+            existingProfile.setPhone(request.getPhone());
+        }
+
+        // 5. Lưu thay đổi
         return profileRepository.save(existingProfile);
     }
 }

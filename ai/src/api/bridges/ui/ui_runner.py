@@ -44,8 +44,19 @@ def run_ui_loop(
 
     while True:
         try:
-            task: UITask = _task_queue.get(timeout=0.5)
+            task = _task_queue.get(timeout=0.1)
         except queue.Empty:
+            # Idle mode: Run VerificationUI continuously until a new task arrives
+            from api.routes.local.verify_stream import get_global_verify_params
+            
+            ui = VerificationUI(
+                verification_recog_pipeline,
+                classify_pipeline,
+                anti_spoofing_pipeline=anti_spoofing_pipeline,
+                **get_global_verify_params()
+            )
+            # Run UI. Inside VerificationUI, it should check `not _task_queue.empty()` to break.
+            ui.run(camera, show_ui=False)
             continue
 
         logging.info("UI runner received task: %s", task.task_type.name)

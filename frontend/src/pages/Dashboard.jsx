@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { classAPI, studentAPI } from "../services/api.js";
+import { logout } from "../utils/auth.js";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -11,10 +12,7 @@ const Dashboard = () => {
   const userRole = localStorage.getItem("role") || "STUDENT";
   const currentUsername = localStorage.getItem("username") || "";
 
-  // --- STATE TẠO LỚP (DÀNH CHO GIÁO VIÊN) ---
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newClassName, setNewClassName] = useState("");
-  const [creating, setCreating] = useState(false);
+  // (Admin is now responsible for class creation)
 
   // --- STATE KHUÔN MẶT (DÀNH CHO SINH VIÊN) ---
   const [faceRegistering, setFaceRegistering] = useState(false);
@@ -61,23 +59,6 @@ const Dashboard = () => {
     fetchFaceStatus();
   }, [userRole]);
 
-  // --- HANDLER CHO GIÁO VIÊN ---
-  const handleCreateClass = async (e) => {
-    e.preventDefault();
-    if (!newClassName.trim()) return;
-    try {
-      setCreating(true);
-      await api.post("/classes/create", { name: newClassName });
-      setShowCreateModal(false);
-      setNewClassName("");
-      fetchClasses();
-      alert("Tạo lớp học thành công!");
-    } catch (error) {
-      alert(error.response?.data || "Có lỗi xảy ra khi tạo lớp!");
-    } finally {
-      setCreating(false);
-    }
-  };
 
   // --- HANDLER CHO SINH VIÊN ---
   const handleFindJoinClass = async (e) => {
@@ -124,10 +105,7 @@ const Dashboard = () => {
     setJoinLoading(false);
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
-  };
+  const handleLogout = () => logout(navigate);
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans relative">
@@ -153,6 +131,12 @@ const Dashboard = () => {
               {userRole === "TEACHER" ? "GIÁO VIÊN" : "SINH VIÊN"}
             </span>
             <button
+              onClick={() => navigate("/profile")}
+              className="text-sm text-indigo-600 hover:text-indigo-800 font-semibold"
+            >
+              Hồ sơ
+            </button>
+            <button
               onClick={handleLogout}
               className="text-sm text-gray-600 hover:text-red-500"
             >
@@ -169,12 +153,9 @@ const Dashboard = () => {
 
             {/* NÚT BẤM THEO QUYỀN */}
             {userRole === "TEACHER" ? (
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="bg-orange-500 text-white px-4 py-2 rounded-md font-medium shadow-sm hover:bg-orange-600"
-              >
-                + Tạo lớp học mới
-              </button>
+              <div className="text-sm text-gray-500 mt-2">
+                * Chỉ Admin mới có quyền tạo lớp và xếp lịch.
+              </div>
             ) : (
               <div className="flex items-center gap-3">
                 {!faceRegistered ? (
@@ -185,9 +166,22 @@ const Dashboard = () => {
                     Đăng ký khuôn mặt
                   </button>
                 ) : (
-                  <span className="bg-green-50 text-green-700 border border-green-200 px-4 py-2 rounded-md font-medium">
-                    ✅ Đã ĐK khuôn mặt
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-green-50 text-green-700 border border-green-200 px-3 py-2 rounded-md font-medium">
+                      ✅ Đã ĐK khuôn mặt
+                    </span>
+                    <button
+                      onClick={() => {
+                        const ok = window.confirm(
+                          "Bạn có chắc chắn muốn đăng ký lại khuôn mặt? Dữ liệu khuôn mặt cũ sẽ bị xóa và thay bằng dữ liệu mới.",
+                        );
+                        if (ok) navigate("/register-face?mode=reregister");
+                      }}
+                      className="bg-white text-indigo-600 border border-indigo-200 px-3 py-2 rounded-md font-medium hover:bg-indigo-50"
+                    >
+                      Đăng ký lại
+                    </button>
+                  </div>
                 )}
                 <button
                   onClick={() => setShowJoinModal(true)}
@@ -231,42 +225,6 @@ const Dashboard = () => {
         </main>
       </div>
 
-      {/* ============================================== */}
-      {/* MODAL 1: TẠO LỚP (GIÁO VIÊN)                     */}
-      {/* ============================================== */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-96 shadow-xl">
-            <h2 className="text-xl font-bold mb-4">Tạo lớp học mới</h2>
-            <form onSubmit={handleCreateClass}>
-              <input
-                type="text"
-                required
-                value={newClassName}
-                onChange={(e) => setNewClassName(e.target.value)}
-                placeholder="Tên lớp học (VD: Lập trình Java)"
-                className="w-full border rounded px-3 py-2 mb-4"
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border rounded"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="px-4 py-2 bg-orange-500 text-white rounded font-bold"
-                >
-                  {creating ? "Đang tạo..." : "Lưu"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ============================================== */}
       {/* MODAL 2: XIN VÀO LỚP (SINH VIÊN)                 */}

@@ -63,4 +63,29 @@ public class ClazzController {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
+
+    // ==========================================
+    // 3. API Xóa sinh viên khỏi lớp (Chỉ dành cho Giáo viên chủ lớp)
+    // ==========================================
+    @DeleteMapping("/{classId}/students/{studentUsername}")
+    public ResponseEntity<?> removeStudentFromClass(
+            @PathVariable Integer classId,
+            @PathVariable String studentUsername,
+            @RequestHeader("Authorization") String token) {
+        try {
+            String message = clazzService.removeStudentFromClass(classId, studentUsername, token);
+            return ResponseEntity.ok(message);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping
+    public ResponseEntity<?> getAllClasses(@RequestHeader("Authorization") String token) {
+        try {
+            return ResponseEntity.ok(clazzService.getAllClasses(token));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

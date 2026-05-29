@@ -5,27 +5,29 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
+
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 public class AdminCreateUserRequest {
 
-    private String username;    // Tên đăng nhập
-    private String password;    // Mật khẩu (Admin đặt mặc định, ví dụ: 123456)
-    private String email;       // Email của người dùng
-    private String fullName;    // Họ và tên đầy đủ
-
     /**
-     * Vai trò của người dùng mới.
-     * Giá trị truyền lên sẽ là: "TEACHER" hoặc "STUDENT"
+     * Vai trò của người dùng mới: "TEACHER" hoặc "STUDENT".
      */
     private String role;
 
-    /**
-     * Mã định danh dùng chung (Mã số):
-     * - Nếu role = "STUDENT" -> Hệ thống tự hiểu đây là MSSV.
-     * - Nếu role = "TEACHER" -> Hệ thống tự hiểu đây là MSGV.
-     */
-    private String code;
+    // Họ và tên đầy đủ (bắt buộc cho cả hai vai trò)
+    private String fullName;
+
+    // ===== Sinh viên =====
+    // MSSV: dùng làm username; mật khẩu mặc định = DDMMYYYY của ngày sinh
+    private String mssv;
+    private String lopSinhHoat;   // Lớp sinh hoạt
+    private LocalDate birth;      // Ngày sinh
+
+    // ===== Giáo viên =====
+    // Username & password = họ tên không dấu viết liền (sinh tự động từ fullName)
+    private String phone;         // SĐT
 }

@@ -208,6 +208,28 @@ class CosineClassifier:
         
         return best_student, best_similarity
         
+    def delete_student(self, student_id: str) -> int:
+        """
+        Remove all embeddings for a student. Returns the number of deleted rows.
+        Safe to call when the collection does not exist yet.
+        """
+        if not self.client.has_collection(self.collection_name):
+            return 0
+        safe_id = str(student_id).replace("\"", "\\\"")
+        try:
+            result = self.client.delete(
+                collection_name=self.collection_name,
+                filter=f'student_id == "{safe_id}"',
+            )
+        except Exception as e:
+            logging.error(f"Failed to delete embeddings for '{student_id}': {e}")
+            return 0
+        deleted = 0
+        if isinstance(result, dict):
+            deleted = int(result.get("delete_count", 0) or 0)
+        logging.info(f"Deleted {deleted} embeddings for '{student_id}'")
+        return deleted
+
     def get_vectors_by_id(self, student_id: str) -> np.ndarray:
         """
         Retrieve all vectors for a given class ID.

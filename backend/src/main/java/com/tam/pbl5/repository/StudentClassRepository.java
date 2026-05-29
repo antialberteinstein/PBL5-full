@@ -28,7 +28,7 @@ public interface StudentClassRepository extends JpaRepository<StudentClass, Inte
 
     List<StudentClass> findByStudentIdAndStatus(Integer studentId, String status);
 
-    @Query(value = "SELECT s.id AS mssv, u.username AS username, p.full_name AS fullName, s.face_registered AS faceRegistered " +
+    @Query(value = "SELECT s.mssv AS mssv, u.username AS username, p.full_name AS fullName, s.face_registered AS faceRegistered " +
             "FROM student_class sc " +
             "JOIN student s ON sc.student_id = s.id " +
             "JOIN users u ON s.username = u.username " +

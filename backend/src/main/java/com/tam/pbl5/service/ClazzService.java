@@ -9,9 +9,10 @@ import com.tam.pbl5.entity.Teacher;
 import com.tam.pbl5.repository.ClassRepository;
 import com.tam.pbl5.repository.TeacherRepository;
 
-// LƯU Ý: Thêm 2 import này vào
 import com.tam.pbl5.repository.StudentClassRepository;
 import com.tam.pbl5.repository.StudentRepository;
+import com.tam.pbl5.entity.Student;
+import com.tam.pbl5.entity.StudentClass;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,16 +41,18 @@ public class ClazzService {
         String username = jwtService.extractUsername(token);
         String role = jwtService.extractRole(token);
 
-        // 3. Phân quyền: Chỉ cho phép ROLE_TEACHER
-        if (!"ROLE_TEACHER".equalsIgnoreCase(role)) {
-            throw new RuntimeException("Lỗi: Chỉ giáo viên mới có quyền tạo lớp học!");
+        // 3. Phân quyền: Chỉ cho phép ROLE_ADMIN
+        if (!"ROLE_ADMIN".equalsIgnoreCase(role)) {
+            throw new RuntimeException("Lỗi: Chỉ Admin mới có quyền tạo lớp học!");
         }
 
-        // 4. Tìm Teacher ID dựa trên username lấy từ Token
-        Teacher teacher = teacherRepository.findByUsername(username);
-        if (teacher == null) {
-            throw new RuntimeException("Lỗi: Không tìm thấy hồ sơ giáo viên cho user: " + username);
+        if (request.getTeacherId() == null) {
+            throw new RuntimeException("Lỗi: Phải chỉ định ID giáo viên cho lớp học!");
         }
+
+        // 4. Tìm Teacher ID dựa trên request
+        Teacher teacher = teacherRepository.findById(request.getTeacherId())
+                .orElseThrow(() -> new RuntimeException("Lỗi: Không tìm thấy giáo viên với ID: " + request.getTeacherId()));
 
         // 5. Khởi tạo Entity Clazz và lưu vào Database
         Clazz newClass = new Clazz();
@@ -81,4 +84,43 @@ public class ClazzService {
         return studentClassRepository.findStudentsByClassAndStatus(classId, "APPROVED");
     }
 
+    @Transactional
+    public String removeStudentFromClass(Integer classId, String studentUsername, String token) {
+        if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
+        String callerUsername = jwtService.extractUsername(token);
+        String role = jwtService.extractRole(token);
+
+        if (!"ROLE_TEACHER".equalsIgnoreCase(role)) {
+            throw new RuntimeException("Lỗi: Chỉ giáo viên mới được phép xóa sinh viên khỏi lớp!");
+        }
+
+        Clazz clazz = clazzRepository.findById(classId)
+                .orElseThrow(() -> new RuntimeException("Lỗi: Lớp học không tồn tại!"));
+
+        Teacher teacher = teacherRepository.findByUsername(callerUsername);
+        if (teacher == null) throw new RuntimeException("Lỗi: Không tìm thấy hồ sơ giáo viên!");
+        if (!clazz.getTeacherId().equals(teacher.getId())) {
+            throw new RuntimeException("Lỗi: Bạn không có quyền xóa sinh viên khỏi lớp này!");
+        }
+
+        Student student = studentRepository.findByUsername(studentUsername);
+        if (student == null) throw new RuntimeException("Lỗi: Không tìm thấy sinh viên với username: " + studentUsername);
+
+        StudentClass record = studentClassRepository.findByStudentIdAndClassId(student.getId(), classId);
+        if (record == null) throw new RuntimeException("Lỗi: Sinh viên không thuộc lớp này!");
+
+        studentClassRepository.delete(record);
+        return "Đã xóa sinh viên " + studentUsername + " khỏi lớp thành công!";
+    }
+
+    public List<Clazz> getAllClasses(String token) {
+        if (token != null && token.startsWith("Bearer ")) {
+            token = token.substring(7);
+        }
+        String role = jwtService.extractRole(token);
+        if (!"ROLE_ADMIN".equalsIgnoreCase(role)) {
+            throw new RuntimeException("Lỗi: Chỉ Admin mới có quyền xem toàn bộ lớp học!");
+        }
+        return clazzRepository.findAll();
+    }
 }

@@ -55,13 +55,12 @@ class RegistrationService:
     def detect_faces(self, frame: np.ndarray) -> List[Any]:
         return self.recog_pipeline.recognizer.detect(frame)
         
-    def check_already_registered(self, frame: np.ndarray, box: np.ndarray) -> Optional[str]:
-        faces = self.recog_pipeline.process_frame(frame)
-        main_face = next((f for f in faces if np.array_equal(f.bbox, box)), None)
-        if main_face:
-            student_id, _ = self.classify_pipeline.predict_with_score(main_face.embedding)
-            if student_id is not None and "UNKNOWN" not in str(student_id):
-                return student_id
+    def check_already_registered(self, embedding: np.ndarray) -> Optional[str]:
+        if embedding is None:
+            return None
+        student_id, _ = self.classify_pipeline.predict_with_score(embedding)
+        if student_id is not None and "UNKNOWN" not in str(student_id):
+            return student_id
         return None
         
     def process_face_sample(self, student_id: str, frame_raw: np.ndarray, face: Any) -> Dict[str, Any]:

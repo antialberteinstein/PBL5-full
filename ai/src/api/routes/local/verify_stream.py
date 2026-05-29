@@ -12,12 +12,45 @@ from typing import Any, Dict, List
 import cv2
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.bridges.ui.ui_runner import submit_task
-from api.bridges.ui.ui_tasks import UITask, UITaskType
 from api.bridges.lcd.lcd_bridge import send_to_lcd
 
 router = APIRouter(tags=["verify"])
 
+global_subscribers = []
+global_subscribers_lock = threading.Lock()
+
+global_allowed_student_ids_ref = {
+    "values": ["????"],
+    "lock": threading.Lock(),
+}
+
+def global_on_frame(frame, results):
+    with global_subscribers_lock:
+        subs = list(global_subscribers)
+    for sub in subs:
+        if sub.get("on_frame"):
+            try:
+                sub["on_frame"](frame, results)
+            except Exception as e:
+                logging.error(f"Error in global_on_frame for sub: {e}")
+
+def global_on_match(student_id, score, frame=None, is_real=True, antispoof_score=None):
+    with global_subscribers_lock:
+        subs = list(global_subscribers)
+    for sub in subs:
+        if sub.get("on_match"):
+            try:
+                sub["on_match"](student_id, score, frame, is_real, antispoof_score)
+            except Exception as e:
+                logging.error(f"Error in global_on_match for sub: {e}")
+
+def get_global_verify_params():
+    return {
+        "on_frame": global_on_frame,
+        "on_match": global_on_match,
+        "stop_event": None,
+        "allowed_student_ids_ref": global_allowed_student_ids_ref,
+    }
 
 def _serialize_faces(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     serialized = []
@@ -114,16 +147,13 @@ async def verify_stream_local(websocket: WebSocket) -> None:
         "last_ack_ts": time.monotonic(),
         "last_sent_frame_id": 0,
     }
-    allowed_student_ids_ref = {
-        "values": ["????"],
-        "lock": threading.Lock(),
-    }
+    sub_id = id(websocket)
 
     async def _send_frame(payload: Dict[str, Any], frame_bytes: bytes) -> None:
         await websocket.send_json(payload)
         await websocket.send_bytes(frame_bytes)
 
-    def on_frame(frame, results) -> None:
+    def on_frame_local(frame, results) -> None:
         nonlocal frame_id
         nonlocal ack_state
         try:
@@ -143,7 +173,13 @@ async def verify_stream_local(websocket: WebSocket) -> None:
         except Exception:
             stop_event.set()
 
-    def on_match(student_id: str, score: float | None, frame=None) -> None:
+    def on_match_local(
+        student_id: str,
+        score: float | None,
+        frame=None,
+        is_real: bool = True,
+        antispoof_score: float | None = None,
+    ) -> None:
         success_frame = None
         if frame is not None:
             success_frame = frame.copy()
@@ -155,13 +191,28 @@ async def verify_stream_local(websocket: WebSocket) -> None:
             "score": score,
             "checkin_time": datetime.now().isoformat(timespec="seconds"),
             "image_url": image_url,
+            # Liveness / anti-spoofing result. is_real=False means the matched
+            # face is suspected of spoofing (photo/video/mask) → cheating.
+            # Coerce away numpy types (np.bool_/np.float32) so json.dumps in
+            # websocket.send_json doesn't raise and silently drop the match.
+            "is_real": bool(is_real),
+            "antispoof_score": float(antispoof_score) if antispoof_score is not None else None,
         }
         asyncio.run_coroutine_threadsafe(websocket.send_json(payload), loop)
         send_to_lcd(student_id)
 
+    # Register subscriber
+    sub = {
+        "id": sub_id,
+        "on_frame": on_frame_local,
+        "on_match": on_match_local,
+    }
+    with global_subscribers_lock:
+        global_subscribers.append(sub)
+
     async def _watch_client() -> None:
         try:
-            while True:
+            while not stop_event.is_set():
                 message = await websocket.receive()
                 text = message.get("text")
                 if not text:
@@ -180,12 +231,8 @@ async def verify_stream_local(websocket: WebSocket) -> None:
                         continue
                     if not student_ids:
                         student_ids = ["????"]
-                        logging.info(
-                            "[verify_stream_local] received empty allowlist; using dummy allowlist=%s",
-                            student_ids,
-                        )
-                    with allowed_student_ids_ref["lock"]:
-                        allowed_student_ids_ref["values"] = [str(val) for val in student_ids]
+                    with global_allowed_student_ids_ref["lock"]:
+                        global_allowed_student_ids_ref["values"] = [str(val) for val in student_ids]
                 elif data.get("type") == "stop":
                     stop_event.set()
         except (WebSocketDisconnect, RuntimeError):
@@ -198,28 +245,26 @@ async def verify_stream_local(websocket: WebSocket) -> None:
                 stop_event.set()
                 return
 
-    task = UITask(
-        task_type=UITaskType.VERIFY,
-        params={
-            "on_frame": on_frame,
-            "on_match": on_match,
-            "stop_event": stop_event,
-            "show_ui": False,
-            "allowed_student_ids_ref": allowed_student_ids_ref,
-        },
-    )
-    submit_task(task)
-
     try:
         disconnect_task = asyncio.create_task(_watch_client())
         ack_task = asyncio.create_task(_monitor_ack())
-        await loop.run_in_executor(None, task.done_event.wait)
+        
+        # Keep connection open until stop_event is set
+        while not stop_event.is_set():
+            await asyncio.sleep(0.1)
+            
         await websocket.send_json({"status": "completed"})
     except WebSocketDisconnect:
-        stop_event.set()
+        pass
     finally:
         stop_event.set()
-        if "disconnect_task" in locals():
-            disconnect_task.cancel()
-        if "ack_task" in locals():
-            ack_task.cancel()
+        with global_subscribers_lock:
+            subs = [s for s in global_subscribers if s["id"] != sub_id]
+            global_subscribers.clear()
+            global_subscribers.extend(subs)
+        
+        # Reset allowlist if no active subscribers
+        if not global_subscribers:
+            with global_allowed_student_ids_ref["lock"]:
+                global_allowed_student_ids_ref["values"] = ["????"]
+

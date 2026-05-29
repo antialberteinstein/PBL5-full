@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import api, { studentAPI } from "../services/api.js"; // ✨ SỬA Ở ĐÂY: Import thêm studentAPI
+import { useNavigate } from "react-router-dom";
+import api, { studentAPI } from "../services/api.js";
+import { saveSession, clearSession, homePathForRole } from "../utils/auth.js";
 
 const Login = () => {
   const [username, setUsername] = useState("");
@@ -8,53 +9,49 @@ const Login = () => {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
+  const handleEnter = (e) => {
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleLogin(e);
+    }
+  };
+
   const handleLogin = async (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     setError("");
+    const u = username.trim();
+    const p = password.trim();
+    if (!u || !p) {
+      setError("Vui lòng nhập tài khoản và mật khẩu");
+      return;
+    }
     try {
-      const response = await api.post("/auth/login", { username, password });
+      // Đảm bảo phiên cũ (nếu có) đã được xoá trước khi cấp phiên mới.
+      clearSession();
 
-      // 1. Lấy token và lưu vào bộ nhớ
+      const response = await api.post("/auth/login", { username: u, password: p });
+
       const token = response.data.token || response.data.accessToken;
-      localStorage.setItem("token", token);
-      localStorage.setItem("username", username);
+      const rawRole = response.data.role || response.data.authority || "STUDENT";
+      saveSession({ token, role: rawRole, username: u });
 
-      console.log("Dữ liệu Backend trả về:", response.data);
+      const roleFinal = (rawRole || "").toUpperCase().replace(/^ROLE_/, "");
 
-      // 2. Xử lý Role
-      let userRole = response.data.role || response.data.authority || "STUDENT";
-      if (userRole.startsWith("ROLE_")) {
-        userRole = userRole.replace("ROLE_", "");
-      }
-
-      const roleFinal = userRole.toUpperCase();
-      localStorage.setItem("role", roleFinal);
-
-      alert("Đăng nhập thành công!");
-
-      // ✨ SỬA Ở ĐÂY: 3. ĐIỀU HƯỚNG THÔNG MINH DỰA TRÊN QUYỀN VÀ TRẠNG THÁI KHUÔN MẶT
       if (roleFinal === "ADMIN") {
-        // Admin bay thẳng vào trang quản trị
-        navigate("/admin");
+        navigate(homePathForRole("ADMIN"), { replace: true });
       } else if (roleFinal === "TEACHER") {
-        // Giáo viên bay thẳng vào bảng điều khiển lớp học
-        navigate("/dashboard");
+        navigate("/dashboard", { replace: true });
       } else if (roleFinal === "STUDENT") {
-        // Sinh viên: Phải kiểm tra xem đã đăng ký khuôn mặt chưa
         try {
           const profileRes = await studentAPI.getCurrentStudent();
           const isFaceRegistered = profileRes.data?.faceRegistered;
-
-          if (isFaceRegistered) {
-            navigate("/dashboard"); // Đã đăng ký -> Cho vào lớp học
-          } else {
-            navigate("/register-face"); // Chưa đăng ký -> Bắt đi đăng ký khuôn mặt
-          }
+          navigate(isFaceRegistered ? "/dashboard" : "/register-face", { replace: true });
         } catch (error) {
           console.error("Lỗi kiểm tra khuôn mặt:", error);
-          // Nếu API lỗi (chưa lấy được thông tin), cứ đẩy tạm qua trang đăng ký cho an toàn
-          navigate("/register-face");
+          navigate("/register-face", { replace: true });
         }
+      } else {
+        navigate("/dashboard", { replace: true });
       }
     } catch (err) {
       setError(err.response?.data || "Sai tài khoản hoặc mật khẩu!");
@@ -73,27 +70,35 @@ const Login = () => {
           </div>
         )}
 
-        <form onSubmit={handleLogin}>
+        <form onSubmit={handleLogin} autoComplete="on">
           <div className="mb-4">
-            <label className="block text-gray-700 text-sm font-bold mb-2">
+            <label htmlFor="login-username" className="block text-gray-700 text-sm font-bold mb-2">
               Tên đăng nhập
             </label>
             <input
+              id="login-username"
+              name="username"
               type="text"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={handleEnter}
               required
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="mb-6">
-            <label className="block text-gray-700 text-sm font-bold mb-2">
+            <label htmlFor="login-password" className="block text-gray-700 text-sm font-bold mb-2">
               Mật khẩu
             </label>
             <input
+              id="login-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleEnter}
               required
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -106,11 +111,8 @@ const Login = () => {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm">
-          Chưa có tài khoản?{" "}
-          <Link className="text-blue-500 hover:underline" to="/register">
-            Đăng ký ngay
-          </Link>
+        <p className="mt-4 text-center text-xs text-gray-400">
+          Tài khoản do quản trị viên cấp. Vui lòng liên hệ admin nếu cần hỗ trợ.
         </p>
       </div>
     </div>

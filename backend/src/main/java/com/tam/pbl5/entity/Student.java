@@ -17,6 +17,10 @@ public class Student {
     @Column(name = "mssv", nullable = false, unique = true)
     private String mssv;
 
+    // Lớp sinh hoạt (cột "Lớp" trong file Excel danh sách sinh viên)
+    @Column(name = "lop_sinh_hoat")
+    private String lopSinhHoat;
+
     @Column(name = "face_registered")
     private boolean faceRegistered;
 }

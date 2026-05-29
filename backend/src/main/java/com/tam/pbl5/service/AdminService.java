@@ -1,16 +1,23 @@
 package com.tam.pbl5.service;
 
 import com.tam.pbl5.dto.request.AdminCreateUserRequest;
+import com.tam.pbl5.dto.response.ImportJob;
 import com.tam.pbl5.entity.*;
 import com.tam.pbl5.repository.*;
+import com.tam.pbl5.util.VietnameseText;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.apache.poi.ss.usermodel.*;
-import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -31,125 +38,295 @@ public class AdminService {
     private final StudentClassRepository studentClassRepository;
     private final AttendanceRepository attendanceRepository;
     private final StudentAttendanceRepository studentAttendanceRepository;
+    private final CameraRepository cameraRepository;
+    private final RoomRepository roomRepository;
+
+    // Cột bắt buộc trong Excel: key = slug không dấu của tiêu đề, value = tên hiển thị
+    private static final Map<String, String> STUDENT_REQUIRED = new LinkedHashMap<>();
+    private static final Map<String, String> TEACHER_REQUIRED = new LinkedHashMap<>();
+    static {
+        STUDENT_REQUIRED.put("mssv", "MSSV");
+        STUDENT_REQUIRED.put("hovaten", "Họ và tên");
+        STUDENT_REQUIRED.put("lop", "Lớp");
+        STUDENT_REQUIRED.put("ngaysinh", "Ngày sinh");
+
+        TEACHER_REQUIRED.put("hovaten", "Họ và tên");
+        TEACHER_REQUIRED.put("sdt", "SĐT");
+    }
+
+    private static final DateTimeFormatter[] DATE_FORMATS = {
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+            DateTimeFormatter.ofPattern("d/M/yyyy"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd"),
+            DateTimeFormatter.ofPattern("dd-MM-yyyy")
+    };
+    private static final DateTimeFormatter PASSWORD_DATE = DateTimeFormatter.ofPattern("ddMMyyyy");
 
     /**
-     * Hàm tạo người dùng đơn lẻ
-     * Đã cập nhật logic kiểm tra mã định danh (code) dựa trên Role
+     * Tạo một tài khoản đơn lẻ (admin thêm thủ công hoặc gọi từ import Excel).
+     * - STUDENT: username = MSSV, password = DDMMYYYY (ngày sinh).
+     * - TEACHER: username & password = họ tên không dấu viết liền (trùng thì nối số).
      */
     @Transactional
     public String adminCreateUser(AdminCreateUserRequest request) {
-
-        // 1. KIỂM TRA CHUNG (Username & Email)
-        if (userRepository.existsById(request.getUsername())) {
-            throw new RuntimeException("Tên đăng nhập '" + request.getUsername() + "' đã tồn tại!");
-        }
-        if (profileRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email '" + request.getEmail() + "' đã được sử dụng!");
+        String role = request.getRole() == null ? "" : request.getRole().trim().toUpperCase();
+        String fullName = request.getFullName() == null ? "" : request.getFullName().trim();
+        if (fullName.isEmpty()) {
+            throw new RuntimeException("Họ và tên không được để trống!");
         }
 
-        // 2. KIỂM TRA MÃ ĐỊNH DANH (Code) DỰA TRÊN ROLE
-        String inputCode = (request.getCode() != null) ? request.getCode().trim() : "";
-        if (inputCode.isEmpty()) {
-            throw new RuntimeException("Lỗi: Mã số định danh (MSSV/MSGV) không được để trống!");
+        if ("STUDENT".equals(role)) {
+            return createStudent(request, fullName);
+        } else if ("TEACHER".equals(role)) {
+            return createTeacher(request, fullName);
+        }
+        throw new RuntimeException("Role không hợp lệ! Chỉ chấp nhận TEACHER hoặc STUDENT.");
+    }
+
+    private String createStudent(AdminCreateUserRequest request, String fullName) {
+        String mssv = request.getMssv() == null ? "" : request.getMssv().trim();
+        if (mssv.isEmpty()) {
+            throw new RuntimeException("MSSV không được để trống!");
+        }
+        if (request.getBirth() == null) {
+            throw new RuntimeException("Ngày sinh không được để trống (dùng để tạo mật khẩu)!");
+        }
+        if (userRepository.existsById(mssv)) {
+            throw new RuntimeException("Tài khoản (MSSV) '" + mssv + "' đã tồn tại!");
+        }
+        if (studentRepository.existsByMssv(mssv)) {
+            throw new RuntimeException("MSSV '" + mssv + "' đã tồn tại trên hệ thống!");
         }
 
-        // Kiểm tra trùng mã trong từng bảng tương ứng
-        if ("STUDENT".equalsIgnoreCase(request.getRole())) {
-            if (studentRepository.existsByMssv(inputCode)) {
-                throw new RuntimeException("Lỗi: MSSV '" + inputCode + "' đã tồn tại trên hệ thống!");
-            }
-        } else if ("TEACHER".equalsIgnoreCase(request.getRole())) {
-            if (teacherRepository.existsByMsgv(inputCode)) {
-                throw new RuntimeException("Lỗi: Mã giáo viên '" + inputCode + "' đã tồn tại trên hệ thống!");
-            }
-        } else {
-            throw new RuntimeException("Role không hợp lệ! Chỉ chấp nhận TEACHER hoặc STUDENT.");
-        }
+        String password = request.getBirth().format(PASSWORD_DATE); // DDMMYYYY
 
-        // 3. TẠO HỒ SƠ CÁ NHÂN (PROFILE)
         Profile profile = new Profile();
-        profile.setFullName(request.getFullName());
-        profile.setEmail(request.getEmail());
+        profile.setFullName(fullName);
+        profile.setBirth(request.getBirth());
         Profile savedProfile = profileRepository.save(profile);
 
-        // 4. TẠO TÀI KHOẢN ĐĂNG NHẬP (USER)
         User user = new User();
-        user.setUsername(request.getUsername());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setUsername(mssv);
+        user.setPassword(passwordEncoder.encode(password));
         user.setEnabled(true);
         user.setProfile(savedProfile);
         userRepository.save(user);
 
-        // 5. GÁN QUYỀN (AUTHORITY)
         Authority authority = new Authority();
-        authority.setUsername(user.getUsername());
-        authority.setAuthority("ROLE_" + request.getRole().toUpperCase());
+        authority.setUsername(mssv);
+        authority.setAuthority("ROLE_STUDENT");
         authorityRepository.save(authority);
 
-        // 6. LƯU VÀO BẢNG ĐỊNH DANH CHI TIẾT (TEACHER / STUDENT)
-        if ("TEACHER".equalsIgnoreCase(request.getRole())) {
-            Teacher teacher = new Teacher();
-            teacher.setUsername(user.getUsername());
-            teacher.setMsgv(inputCode); // Gán code vào cột msgv
-            teacherRepository.save(teacher);
-        } else {
-            Student student = new Student();
-            student.setUsername(user.getUsername());
-            student.setMssv(inputCode); // Gán code vào cột mssv
-            student.setFaceRegistered(false);
-            studentRepository.save(student);
+        Student student = new Student();
+        student.setUsername(mssv);
+        student.setMssv(mssv);
+        student.setLopSinhHoat(request.getLopSinhHoat());
+        student.setFaceRegistered(false);
+        studentRepository.save(student);
+
+        return "Sinh viên: " + mssv;
+    }
+
+    private String createTeacher(AdminCreateUserRequest request, String fullName) {
+        String base = VietnameseText.toAsciiSlug(fullName);
+        if (base.isEmpty()) {
+            throw new RuntimeException("Họ và tên không hợp lệ để tạo tài khoản!");
+        }
+        // Trùng username thì nối hậu tố số; mật khẩu giữ nguyên slug họ tên
+        String username = base;
+        int suffix = 1;
+        while (userRepository.existsById(username)) {
+            suffix++;
+            username = base + suffix;
         }
 
-        return "Thành công: " + request.getUsername();
+        Profile profile = new Profile();
+        profile.setFullName(fullName);
+        profile.setPhone(request.getPhone());
+        Profile savedProfile = profileRepository.save(profile);
+
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode(base)); // mật khẩu = họ tên không dấu
+        user.setEnabled(true);
+        user.setProfile(savedProfile);
+        userRepository.save(user);
+
+        Authority authority = new Authority();
+        authority.setUsername(username);
+        authority.setAuthority("ROLE_TEACHER");
+        authorityRepository.save(authority);
+
+        Teacher teacher = new Teacher();
+        teacher.setUsername(username);
+        teacherRepository.save(teacher);
+
+        return "Giáo viên: " + username;
     }
 
     /**
-     * Hàm Import Excel
+     * Chạy job import Excel (gọi từ ImportJobService trên thread nền).
+     * Tự cập nhật tiến trình (total/processed/succeeded/failed/errorLog) vào job.
      */
-    public String importUsersFromExcel(MultipartFile file, String role) { // Nhận thêm role
-        int successCount = 0;
-        int failCount = 0;
-        StringBuilder errorLog = new StringBuilder();
+    public void runImportJob(byte[] fileBytes, ImportJob job) {
+        String normRole = job.getRole();
+        Map<String, String> required = "STUDENT".equals(normRole) ? STUDENT_REQUIRED : TEACHER_REQUIRED;
         DataFormatter formatter = new DataFormatter();
 
-        try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {
+        try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(fileBytes))) {
+            // Evaluator để các ô FORMULA trả về giá trị kết quả thay vì chuỗi công thức
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             Sheet sheet = workbook.getSheetAt(0);
 
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            // 1. Tìm hàng tiêu đề
+            Map<String, Integer> colIndex = null;
+            int headerRowIdx = -1;
+            for (int i = 0; i <= sheet.getLastRowNum(); i++) {
+                Map<String, Integer> candidate = headerSlugMap(sheet.getRow(i), formatter, evaluator);
+                if (candidate.keySet().containsAll(required.keySet())) {
+                    colIndex = candidate;
+                    headerRowIdx = i;
+                    break;
+                }
+            }
+            if (colIndex == null) {
+                Map<String, Integer> best = findBestHeader(sheet, formatter, evaluator, required);
+                List<String> missing = new ArrayList<>();
+                for (Map.Entry<String, String> e : required.entrySet()) {
+                    if (best == null || !best.containsKey(e.getKey())) {
+                        missing.add(e.getValue());
+                    }
+                }
+                throw new RuntimeException("File Excel thiếu cột bắt buộc: " + String.join(", ", missing)
+                        + ". Cần có đủ các cột: " + String.join(", ", required.values()) + ".");
+            }
+
+            // 2. Đếm sơ bộ số dòng có dữ liệu (để frontend hiển thị %)
+            int total = 0;
+            for (int i = headerRowIdx + 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+                boolean hasData = false;
+                for (Integer col : colIndex.values()) {
+                    if (col != null && !cellStr(formatter, evaluator, row, col).isEmpty()) {
+                        hasData = true;
+                        break;
+                    }
+                }
+                if (hasData) total++;
+            }
+            job.setTotal(total);
+
+            // 3. Xử lý từng dòng và cập nhật tiến trình
+            for (int i = headerRowIdx + 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
 
                 try {
-                    // Lấy giá trị chung cho Username và Code (MSSV/MSGV)
-                    String identifier = formatter.formatCellValue(row.getCell(0)).trim();
-                    String password   = formatter.formatCellValue(row.getCell(1)).trim();
-                    String email      = formatter.formatCellValue(row.getCell(2)).trim();
-                    String fullName   = formatter.formatCellValue(row.getCell(3)).trim();
-
-                    if (identifier.isEmpty()) continue;
-
-                    // Tạo request với role được truyền vào
-                    AdminCreateUserRequest request = AdminCreateUserRequest.builder()
-                            .username(identifier) // Username
-                            .code(identifier)     // Code (MSSV/MSGV) lấy từ cùng 1 cột
-                            .password(password)
-                            .email(email)
-                            .fullName(fullName)
-                            .role(role)           // Sử dụng role được truyền vào từ FE
-                            .build();
-
-                    this.adminCreateUser(request);
-                    successCount++;
+                    AdminCreateUserRequest req;
+                    if ("STUDENT".equals(normRole)) {
+                        String mssv = cellStr(formatter, evaluator, row, colIndex.get("mssv"));
+                        String fullName = cellStr(formatter, evaluator, row, colIndex.get("hovaten"));
+                        String lop = cellStr(formatter, evaluator, row, colIndex.get("lop"));
+                        if (mssv.isEmpty() && fullName.isEmpty()) continue; // dòng trống
+                        LocalDate birth = parseDate(row.getCell(colIndex.get("ngaysinh")), formatter, evaluator);
+                        req = AdminCreateUserRequest.builder()
+                                .role("STUDENT").mssv(mssv).fullName(fullName)
+                                .lopSinhHoat(lop).birth(birth).build();
+                    } else {
+                        String fullName = cellStr(formatter, evaluator, row, colIndex.get("hovaten"));
+                        String phone = cellStr(formatter, evaluator, row, colIndex.get("sdt"));
+                        if (fullName.isEmpty()) continue; // dòng trống
+                        req = AdminCreateUserRequest.builder()
+                                .role("TEACHER").fullName(fullName).phone(phone).build();
+                    }
+                    this.adminCreateUser(req);
+                    job.setSucceeded(job.getSucceeded() + 1);
                 } catch (Exception e) {
-                    failCount++;
-                    errorLog.append("Dòng ").append(i + 1).append(": ").append(e.getMessage()).append("\n");
+                    job.setFailed(job.getFailed() + 1);
+                    job.appendErrorLine("Dòng " + (i + 1) + ": " + e.getMessage());
+                } finally {
+                    job.setProcessed(job.getProcessed() + 1);
                 }
             }
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Lỗi nghiêm trọng khi đọc file: " + e.getMessage());
         }
+    }
 
-        return String.format("Nhập %s hoàn tất! Thành công: %d, Thất bại: %d.", role, successCount, failCount);
+    // Loại kết quả thật của cell (xử lý cả FORMULA -> lấy kiểu kết quả đã cache)
+    private CellType effectiveType(Cell cell) {
+        if (cell == null) return CellType._NONE;
+        CellType t = cell.getCellType();
+        return t == CellType.FORMULA ? cell.getCachedFormulaResultType() : t;
+    }
+
+    // Map slug-tiêu-đề -> chỉ số cột của một hàng (đánh giá công thức khi cần)
+    private Map<String, Integer> headerSlugMap(Row row, DataFormatter formatter, FormulaEvaluator evaluator) {
+        Map<String, Integer> map = new HashMap<>();
+        if (row == null) return map;
+        for (int c = row.getFirstCellNum(); c >= 0 && c < row.getLastCellNum(); c++) {
+            String slug = VietnameseText.toAsciiSlug(formatter.formatCellValue(row.getCell(c), evaluator));
+            if (!slug.isEmpty() && !map.containsKey(slug)) {
+                map.put(slug, c);
+            }
+        }
+        return map;
+    }
+
+    // Tìm hàng giống tiêu đề nhất (nhiều cột bắt buộc nhất) để liệt kê cột thiếu
+    private Map<String, Integer> findBestHeader(Sheet sheet, DataFormatter formatter,
+                                                FormulaEvaluator evaluator,
+                                                Map<String, String> required) {
+        Map<String, Integer> best = null;
+        int bestScore = -1;
+        for (int i = 0; i <= sheet.getLastRowNum(); i++) {
+            Map<String, Integer> candidate = headerSlugMap(sheet.getRow(i), formatter, evaluator);
+            int score = 0;
+            for (String key : required.keySet()) {
+                if (candidate.containsKey(key)) score++;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    private String cellStr(DataFormatter formatter, FormulaEvaluator evaluator, Row row, Integer col) {
+        if (col == null) return "";
+        Cell cell = row.getCell(col);
+        if (cell == null) return "";
+        // Với FORMULA cell, lấy kiểu kết quả; nếu numeric không phải date -> giữ dạng số nguyên đẹp
+        CellType type = effectiveType(cell);
+        if (type == CellType.NUMERIC && !DateUtil.isCellDateFormatted(cell)) {
+            double d = cell.getNumericCellValue();
+            if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                return String.valueOf((long) d);
+            }
+        }
+        // formatter có evaluator => với FORMULA cell sẽ trả về kết quả tính, không phải công thức gốc
+        return formatter.formatCellValue(cell, evaluator).trim();
+    }
+
+    private LocalDate parseDate(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator) {
+        if (cell == null) throw new RuntimeException("Thiếu ngày sinh!");
+        CellType type = effectiveType(cell);
+        if (type == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+            return cell.getLocalDateTimeCellValue().toLocalDate();
+        }
+        String raw = formatter.formatCellValue(cell, evaluator).trim();
+        if (raw.isEmpty()) throw new RuntimeException("Thiếu ngày sinh!");
+        for (DateTimeFormatter f : DATE_FORMATS) {
+            try {
+                return LocalDate.parse(raw, f);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+        throw new RuntimeException("Ngày sinh '" + raw + "' không đúng định dạng (dd/MM/yyyy)!");
     }
 
     // ==========================================
@@ -207,23 +384,94 @@ public class AdminService {
     // CÁC HÀM MỚI: QUẢN LÝ TÀI KHOẢN (ADMIN)
     // ==========================================
 
-    // Lấy toàn bộ tài khoản (Trả về Map để bảo mật, không trả về password)
+    // Lấy toàn bộ tài khoản (kèm vai trò, không trả về password)
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getAllUsers() {
         List<User> users = userRepository.findAll();
+        // Pre-load authorities theo batch
+        Map<String, String> roleByUsername = new HashMap<>();
+        authorityRepository.findAll().forEach(a -> roleByUsername.put(a.getUsername(), a.getAuthority()));
+
         return users.stream().map(user -> {
             Map<String, Object> map = new HashMap<>();
             map.put("username", user.getUsername());
-
-            // ✨ SỬA LỖI Ở ĐÂY: Đổi getEnabled() thành isEnabled()
             map.put("enabled", user.isEnabled());
+            Profile p = user.getProfile();
+            map.put("fullName", p != null ? p.getFullName() : null);
+            map.put("role", roleByUsername.get(user.getUsername()));
+            return map;
+        }).collect(Collectors.toList());
+    }
 
-            if (user.getProfile() != null) {
-                map.put("fullName", user.getProfile().getFullName());
-                map.put("email", user.getProfile().getEmail());
+    // Danh sách sinh viên cho tab "Quản lý sinh viên"
+    @Transactional(readOnly = true)
+    public Map<String, Long> getSystemStats() {
+        Map<String, Long> stats = new HashMap<>();
+        stats.put("students", studentRepository.count());
+        stats.put("teachers", teacherRepository.count());
+        stats.put("classes", classRepository.count());
+        stats.put("cameras", cameraRepository.count());
+        return stats;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getAllStudents() {
+        List<Student> studentList = studentRepository.findAll();
+        // Pre-fetch users theo batch để giữ session mở khi đọc Profile (eager)
+        List<String> usernames = studentList.stream()
+                .map(Student::getUsername)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+        Map<String, User> userByName = userRepository.findAllById(usernames).stream()
+                .collect(Collectors.toMap(User::getUsername, u -> u, (a, b) -> a));
+
+        return studentList.stream().map(s -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("username", s.getUsername());
+            map.put("mssv", s.getMssv());
+            map.put("lopSinhHoat", s.getLopSinhHoat());
+            map.put("faceRegistered", s.isFaceRegistered());
+            User u = userByName.get(s.getUsername());
+            if (u != null) {
+                map.put("enabled", u.isEnabled());
+                Profile p = u.getProfile();
+                map.put("fullName", p != null ? p.getFullName() : null);
+                map.put("birth", p != null ? p.getBirth() : null);
+            } else {
+                map.put("fullName", null);
             }
             return map;
         }).collect(Collectors.toList());
-    }   
+    }
+
+    // Danh sách giáo viên cho tab "Quản lý giáo viên"
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getAllTeachers() {
+        List<Teacher> teacherList = teacherRepository.findAll();
+        List<String> usernames = teacherList.stream()
+                .map(Teacher::getUsername)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+        Map<String, User> userByName = userRepository.findAllById(usernames).stream()
+                .collect(Collectors.toMap(User::getUsername, u -> u, (a, b) -> a));
+
+        return teacherList.stream().map(t -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", t.getId());
+            map.put("username", t.getUsername());
+            map.put("msgv", t.getMsgv());
+            User u = userByName.get(t.getUsername());
+            if (u != null) {
+                map.put("enabled", u.isEnabled());
+                Profile p = u.getProfile();
+                map.put("fullName", p != null ? p.getFullName() : null);
+                map.put("phone", p != null ? p.getPhone() : null);
+            } else {
+                map.put("fullName", null);
+            }
+            return map;
+        }).collect(Collectors.toList());
+    }
 
     // Đặt lại mật khẩu cho User
     @Transactional

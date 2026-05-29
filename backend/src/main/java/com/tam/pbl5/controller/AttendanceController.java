@@ -134,6 +134,8 @@ public class AttendanceController {
                     request.getStudentUsername(),
                     request.getCheckinTime(),
                     request.getImageUrl(),
+                    request.getIsSpoof(),
+                    request.getAntispoofScore(),
                     token
             );
             return ResponseEntity.ok(response);
@@ -153,6 +155,21 @@ public class AttendanceController {
         try {
             List<StudentAttendanceReportDTO> report = attendanceService.getStudentAttendanceReport(classId, studentId, token);
             return ResponseEntity.ok(report);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // 9. API GIÁO VIÊN RESET ĐIỂM DANH 1 BUỔI (TEST/DEMO)
+    // ==========================================
+    @PostMapping("/{attendanceId}/reset")
+    public ResponseEntity<?> resetAttendance(
+            @PathVariable Integer attendanceId,
+            @RequestHeader("Authorization") String token) {
+        try {
+            String message = attendanceService.resetAttendance(attendanceId, token);
+            return ResponseEntity.ok(message);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

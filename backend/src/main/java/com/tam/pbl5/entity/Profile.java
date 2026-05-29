@@ -3,7 +3,7 @@ package com.tam.pbl5.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "profile")
@@ -16,12 +16,12 @@ public class Profile {
     @Column(name = "avatar_path")
     private String avatarPath;
 
-    private LocalDateTime birth;
+    // Ngày sinh (dùng cho sinh viên: nguồn sinh ra mật khẩu mặc định DDMMYYYY)
+    private LocalDate birth;
 
     @Column(name = "full_name")
     private String fullName;
 
-    // Thêm trường email để đồng bộ với cột trong database
-    @Column(nullable = false)
-    private String email;
+    // Số điện thoại (dùng cho giáo viên - cột SĐT trong file Excel)
+    private String phone;
 }
