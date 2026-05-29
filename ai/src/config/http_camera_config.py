@@ -1,1 +1,1 @@
-HTTP_CAMERA_URL = "http://172.20.10.3:81/stream"
+HTTP_CAMERA_URL = "http://172.20.10.5:81/stream"
