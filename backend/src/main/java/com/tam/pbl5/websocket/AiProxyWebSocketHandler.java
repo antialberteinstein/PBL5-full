@@ -12,8 +12,10 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Base WebSocket proxy: relays messages bidirectionally between a frontend
@@ -28,6 +30,11 @@ public abstract class AiProxyWebSocketHandler extends AbstractWebSocketHandler {
     // Per-session accumulators for incoming partial messages from frontend
     private final Map<String, ByteArrayOutputStream> inBinaryBufs = new ConcurrentHashMap<>();
     private final Map<String, StringBuilder> inTextBufs = new ConcurrentHashMap<>();
+
+    // Pending text messages queued while AI connection is still being established.
+    // Without this, the allowlist message sent by the frontend immediately after
+    // WebSocket open gets silently dropped when buildAsync hasn't completed yet.
+    private final Map<String, Queue<String>> pendingTextMessages = new ConcurrentHashMap<>();
 
     protected AiProxyWebSocketHandler(JwtService jwtService) {
         this.jwtService = jwtService;
@@ -56,6 +63,16 @@ public abstract class AiProxyWebSocketHandler extends AbstractWebSocketHandler {
                     aiSessions.put(sid, ws);
                     ws.request(1);
                     log.info("[AiProxy] Connected to AI for session={}", sid);
+
+                    // Flush any messages that arrived before the AI connection was ready
+                    Queue<String> pending = pendingTextMessages.remove(sid);
+                    if (pending != null && !pending.isEmpty()) {
+                        log.info("[AiProxy] Flushing {} pending message(s) for session={}", pending.size(), sid);
+                        String msg;
+                        while ((msg = pending.poll()) != null) {
+                            ws.sendText(msg, true);
+                        }
+                    }
                 })
                 .exceptionally(ex -> {
                     log.error("[AiProxy] Cannot connect to AI {}: {}", targetUrl, ex.getMessage());
@@ -71,8 +88,15 @@ public abstract class AiProxyWebSocketHandler extends AbstractWebSocketHandler {
         if (message.isLast()) {
             String fullMsg = buf.toString();
             buf.setLength(0);
-            WebSocket ai = aiSessions.get(session.getId());
-            if (ai != null) ai.sendText(fullMsg, true);
+            String sid = session.getId();
+            WebSocket ai = aiSessions.get(sid);
+            if (ai != null) {
+                ai.sendText(fullMsg, true);
+            } else {
+                // AI connection not ready yet — queue instead of dropping
+                log.warn("[AiProxy] AI not ready for session={}, queuing text message", sid);
+                pendingTextMessages.computeIfAbsent(sid, k -> new ConcurrentLinkedQueue<>()).add(fullMsg);
+            }
         }
     }
 
@@ -97,6 +121,7 @@ public abstract class AiProxyWebSocketHandler extends AbstractWebSocketHandler {
         String sid = session.getId();
         inBinaryBufs.remove(sid);
         inTextBufs.remove(sid);
+        pendingTextMessages.remove(sid);
         WebSocket ai = aiSessions.remove(sid);
         if (ai != null) {
             ai.sendClose(WebSocket.NORMAL_CLOSURE, "frontend disconnected")

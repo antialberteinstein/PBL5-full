@@ -599,6 +599,12 @@ const ClassDetail = () => {
     try {
       setResettingSessionId(sessionId);
       await attendanceAPI.resetAttendance(sessionId);
+
+      // Dừng WebSocket cũ nếu đang chạy, để GV có thể mở lại sạch
+      if (attendanceRunningRef.current) {
+        handleStopAttendance();
+      }
+
       setAttendanceSessions((prev) =>
         prev.map((s) => {
           if (s.id !== sessionId) return s;
