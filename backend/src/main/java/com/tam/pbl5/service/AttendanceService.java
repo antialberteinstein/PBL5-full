@@ -1,6 +1,7 @@
 package com.tam.pbl5.service;
 
 import com.tam.pbl5.dto.request.AttendanceCreateRequest;
+import com.tam.pbl5.dto.request.DiscordAttendancePayload;
 import com.tam.pbl5.dto.response.AttendedStudentResponse; // ✨ ĐÃ THÊM IMPORT NÀY
 import com.tam.pbl5.dto.response.StudentAttendanceReportDTO;
 import com.tam.pbl5.dto.response.TeacherCheckinResponse;
@@ -38,6 +39,7 @@ public class AttendanceService {
     private final ClassScheduleRepository classScheduleRepository;
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final DiscordNotifier discordNotifier;
 
     private static final Pattern DATA_IMAGE_PATTERN =
             Pattern.compile("^data:image/(jpeg|jpg|png);base64,(.+)$", Pattern.CASE_INSENSITIVE);
@@ -269,17 +271,22 @@ public class AttendanceService {
             }
         }
 
-        // 2. Lấy danh sách bản ghi điểm danh
+        // 2. Build danh sách qua helper dùng chung (đã tách để closeAttendance tái dùng)
+        return buildAttendedStudents(attendanceId);
+    }
+
+    /**
+     * Map các bản ghi điểm danh của 1 buổi -> AttendedStudentResponse (kèm ảnh + cờ spoof).
+     * Không kiểm tra quyền — caller tự lo phân quyền.
+     */
+    private List<AttendedStudentResponse> buildAttendedStudents(Integer attendanceId) {
         List<StudentAttendance> attendedRecords = studentAttendanceRepository.findByAttendanceId(attendanceId);
 
-        // 3. ✨ CÁCH FIX LỖI: Sử dụng Optional Map để lấy dữ liệu từ nhiều bảng
         return attendedRecords.stream().map(record -> {
-            // Tìm sinh viên
             Student student = studentRepository.findById(record.getStudentId())
                     .orElse(new Student());
 
-            // Thay vì dùng ifPresent và gán lại biến (gây lỗi), ta dùng chuỗi map()
-            // Nó sẽ đi từ: User -> Profile -> FullName. Nếu bất kỳ chỗ nào null, nó lấy "Chưa cập nhật"
+            // User -> Profile -> FullName; null ở bất kỳ đâu thì lấy "Chưa cập nhật tên".
             String fullNameFromProfile = userRepository.findById(student.getUsername())
                     .map(User::getProfile)
                     .map(Profile::getFullName)
@@ -323,7 +330,15 @@ public class AttendanceService {
             }
         }
 
-        List<StudentClass> allStudentsInClass = studentClassRepository.findByClassIdAndStatus(attendance.getClassId(), "APPROVED");
+        return buildAbsentStudents(attendanceId, attendance.getClassId());
+    }
+
+    /**
+     * Tính danh sách SV vắng = roster APPROVED của lớp trừ đi SV đã điểm danh.
+     * Không kiểm tra quyền — caller tự lo phân quyền.
+     */
+    private List<AttendedStudentResponse> buildAbsentStudents(Integer attendanceId, Integer classId) {
+        List<StudentClass> allStudentsInClass = studentClassRepository.findByClassIdAndStatus(classId, "APPROVED");
         List<Integer> allStudentIds = allStudentsInClass.stream()
                 .map(StudentClass::getStudentId)
                 .collect(Collectors.toList());
@@ -337,12 +352,9 @@ public class AttendanceService {
                 .filter(id -> !attendedStudentIds.contains(id))
                 .collect(Collectors.toList());
 
-        // 1. Lấy danh sách Entity Student đang vắng mặt
         List<Student> absentStudents = studentRepository.findAllById(absentStudentIds);
 
-        // 2. Map sang DTO chứa Họ Tên lấy từ bảng Profile
         return absentStudents.stream().map(student -> {
-            // Lấy fullName thông qua User -> Profile
             String fullNameFromProfile = userRepository.findById(student.getUsername())
                     .map(User::getProfile)
                     .map(Profile::getFullName)
@@ -350,11 +362,11 @@ public class AttendanceService {
 
             return new AttendedStudentResponse(
                     student.getMssv(),
-                    fullNameFromProfile, // Đã lấy được tên thật
+                    fullNameFromProfile,
                     student.getUsername(),
-                    null, // Vắng mặt nên gán checkinTime là null
-                    null, // Vắng mặt nên gán imageUrl là null
-                    false, // Vắng mặt nên không có cờ gian lận
+                    null,  // Vắng mặt -> không có giờ checkin
+                    null,  // Vắng mặt -> không có ảnh
+                    false, // Vắng mặt -> không có cờ gian lận
                     null
             );
         }).collect(Collectors.toList());
@@ -554,5 +566,79 @@ public class AttendanceService {
         studentAttendanceRepository.delete(record);
 
         return "Đã hủy điểm danh cho sinh viên: " + studentUsername;
+    }
+
+    // ==========================================
+    // 10. GIÁO VIÊN ĐÓNG ĐIỂM DANH -> GỬI TỔNG KẾT QUA DISCORD
+    // ==========================================
+    @Transactional(readOnly = true)
+    public String closeAttendance(Integer attendanceId, String token) {
+        if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
+        String username = jwtService.extractUsername(token);
+        String role = jwtService.extractRole(token);
+
+        if (!"ROLE_TEACHER".equalsIgnoreCase(role)) {
+            throw new RuntimeException("Lỗi: Chỉ giáo viên mới được phép đóng điểm danh!");
+        }
+
+        Attendance attendance = attendanceRepository.findById(attendanceId)
+                .orElseThrow(() -> new RuntimeException("Lỗi: Buổi điểm danh không tồn tại!"));
+
+        Teacher teacher = teacherRepository.findByUsername(username);
+        if (teacher == null) {
+            throw new RuntimeException("Lỗi: Không tìm thấy hồ sơ giáo viên!");
+        }
+
+        Clazz clazz = classRepository.findById(attendance.getClassId())
+                .orElseThrow(() -> new RuntimeException("Lỗi: Lớp học không tồn tại!"));
+
+        if (!clazz.getTeacherId().equals(teacher.getId())) {
+            throw new RuntimeException("Lỗi: Bạn không có quyền đóng điểm danh cho lớp của giáo viên khác!");
+        }
+
+        // Tên + SĐT giáo viên qua Teacher -> User -> Profile
+        String teacherName = userRepository.findById(teacher.getUsername())
+                .map(User::getProfile)
+                .map(Profile::getFullName)
+                .orElse(teacher.getUsername());
+        String teacherPhone = userRepository.findById(teacher.getUsername())
+                .map(User::getProfile)
+                .map(Profile::getPhone)
+                .orElse("Chưa cập nhật");
+
+        List<AttendedStudentResponse> attended = buildAttendedStudents(attendanceId);
+        List<AttendedStudentResponse> absent = buildAbsentStudents(attendanceId, attendance.getClassId());
+
+        int present = attended.size();
+        int absentCount = absent.size();
+        int total = present + absentCount;
+        int spoofCount = (int) attended.stream().filter(AttendedStudentResponse::isSpoof).count();
+
+        DiscordAttendancePayload payload = new DiscordAttendancePayload();
+        payload.setTeacherName(teacherName);
+        payload.setTeacherPhone(teacherPhone);
+        payload.setClassName(clazz.getName());
+        payload.setSessionTime(attendance.getDatetime() != null ? attendance.getDatetime().toString() : null);
+        payload.setTotal(total);
+        payload.setPresent(present);
+        payload.setAbsent(absentCount);
+        payload.setSpoofCount(spoofCount);
+        payload.setAttended(attended);
+
+        System.out.println("[CloseAttendance] attendanceId=" + attendanceId
+                + " teacher=" + teacherName
+                + " total=" + total + " present=" + present + " absent=" + absentCount
+                + " spoof=" + spoofCount + " -> đang gửi Discord...");
+
+        // Không để lỗi bot Discord làm hỏng thao tác đóng điểm danh của giáo viên.
+        try {
+            discordNotifier.notifyClose(payload);
+        } catch (Exception exc) {
+            System.err.println("[DiscordNotifier] Gửi tổng kết Discord THẤT BẠI: " + exc.getMessage());
+            return "Đã đóng điểm danh (không gửi được thông báo Discord).";
+        }
+
+        System.out.println("[CloseAttendance] Đã gửi tổng kết tới Discord thành công.");
+        return "Đã đóng điểm danh và gửi tổng kết tới Discord.";
     }
 }

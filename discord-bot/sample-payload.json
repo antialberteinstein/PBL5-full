@@ -1,0 +1,36 @@
+{
+  "teacherName": "Nguyễn Văn A",
+  "teacherPhone": "0901234567",
+  "className": "Lập trình Web - 21TCLC",
+  "sessionTime": "2026-06-11T08:00:00",
+  "total": 4,
+  "present": 3,
+  "absent": 1,
+  "spoofCount": 1,
+  "attended": [
+    {
+      "mssv": "102210001",
+      "fullName": "Trần Thị B",
+      "username": "tranthib",
+      "checkinTime": "2026-06-11T08:02:11",
+      "imageUrl": "/uploads/attendance/sample-1.jpg",
+      "spoof": false
+    },
+    {
+      "mssv": "102210002",
+      "fullName": "Lê Văn C",
+      "username": "levanc",
+      "checkinTime": "2026-06-11T08:03:40",
+      "imageUrl": "/uploads/attendance/sample-2.jpg",
+      "spoof": true
+    },
+    {
+      "mssv": "102210003",
+      "fullName": "Phạm Thị D",
+      "username": "phamthid",
+      "checkinTime": "2026-06-11T08:05:02",
+      "imageUrl": null,
+      "spoof": false
+    }
+  ]
+}

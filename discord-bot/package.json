@@ -1,0 +1,18 @@
+{
+  "name": "pbl5-discord-bot",
+  "version": "1.0.0",
+  "description": "Bot Discord gửi tổng kết điểm danh PBL5 vào một channel khi giáo viên đóng điểm danh.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
+  }
+}

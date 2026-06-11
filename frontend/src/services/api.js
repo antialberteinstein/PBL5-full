@@ -140,6 +140,10 @@ export const attendanceAPI = {
   // RESET TOÀN BỘ ĐIỂM DANH CỦA 1 BUỔI (TEST/DEMO)
   resetAttendance: (attendanceId) =>
     api.post(`/attendance/${attendanceId}/reset`),
+
+  // ĐÓNG ĐIỂM DANH: backend gom tổng kết rồi gửi thông báo Discord
+  closeAttendance: (attendanceId) =>
+    api.post(`/attendance/${attendanceId}/close`),
 };
 
 // ════════════════════════════════════════════════════════════════════════════

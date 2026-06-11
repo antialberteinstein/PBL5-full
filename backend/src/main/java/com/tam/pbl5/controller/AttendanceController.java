@@ -191,4 +191,19 @@ public class AttendanceController {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
+
+    // ==========================================
+    // 10. GIÁO VIÊN ĐÓNG ĐIỂM DANH -> GỬI TỔNG KẾT QUA DISCORD
+    // ==========================================
+    @PostMapping("/{attendanceId}/close")
+    public ResponseEntity<?> closeAttendance(
+            @PathVariable Integer attendanceId,
+            @RequestHeader("Authorization") String token) {
+        try {
+            String message = attendanceService.closeAttendance(attendanceId, token);
+            return ResponseEntity.ok(message);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

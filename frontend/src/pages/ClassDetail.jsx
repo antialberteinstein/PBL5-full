@@ -531,6 +531,10 @@ const ClassDetail = () => {
   };
 
   const handleStopAttendance = () => {
+    // Đóng điểm danh -> backend gom tổng kết & gửi thông báo Discord (không chặn UI).
+    if (currentAttendanceId) {
+      attendanceAPI.closeAttendance(currentAttendanceId).catch(() => {});
+    }
     if (verifySocketRef.current) {
       if (verifySocketRef.current.readyState === WebSocket.OPEN) {
         // Clear allowlist trước khi stop để AI server không tiếp tục nhận diện
