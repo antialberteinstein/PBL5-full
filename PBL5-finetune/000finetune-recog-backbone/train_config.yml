@@ -1,0 +1,35 @@
+# Fine-tune Config cho ResNet50 (InsightFace + LoRA)
+
+# --- Model & Dataset Paths ---
+model_path: "models/pretrained/r50-ms1mv3.pth"
+dataset_train_path: "dataset/train"
+save_dir: "models/finetuned"
+
+# --- Training Hyperparameters ---
+batch_size: 64
+epochs: 30
+head_warmup_epochs: 2
+learning_rate: 0.0002 # 2e-4
+weight_decay: 0.01   # Tăng để bù regularization từ augmentation đã bỏ
+optimizer: "adamw" 
+num_workers: 0 
+fp16: true 
+gradient_acc: 1 
+
+# --- LoRA Hyperparameters ---
+use_lora: true
+lora_r: 8           # Rank thấp: update nhỏ, không phá pretrained features
+lora_alpha: 16      # alpha/r = 2x
+lora_dropout: 0.05  # Dropout thấp vì đã regularize qua rank nhỏ
+lora_target_modules: ".*conv.*|fc" # Toàn bộ mạng: tất cả conv + fc embedding
+
+# --- ArcFace / CosFace Margin Head (PartialFC) ---
+embedding_size: 512
+sample_rate: 1.0 
+margin_list: [1.0, 0.3, 0.0] # Điểm giữa của 0.2 (train13) và 0.35 (train14), cân bằng nhất
+interclass_filtering_threshold: 0
+
+# --- Logging & Validation ---
+verbose: 10 # Số step in ra log
+val_targets: [] # Để trống nếu không dùng các tập test tiêu chuẩn lfw, cfp_fp...
+using_wandb: false # Đổi thành true nếu muốn theo dõi trên Weights & Biases

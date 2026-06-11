@@ -1,0 +1,33 @@
+# ============================================================
+# Tunable Hyperparameters — CHỈ ĐỂ THAM KHẢO
+# File này không được dùng bởi bất kỳ script nào.
+# Các giá trị là mock (ví dụ minh họa), không phải best config.
+#
+# Search space thực tế được định nghĩa trong:
+#   → train_with_hyperparam_tune.py  (hàm make_objective)
+# ============================================================
+
+# --- Learning Rate ---
+# suggest_float("learning_rate", 5e-5, 5e-4, log=True)
+learning_rate: 0.0002          # mock: điểm giữa trong log-scale [5e-5, 5e-4]
+
+# --- Weight Decay ---
+# suggest_float("weight_decay", 1e-4, 5e-2, log=True)
+weight_decay: 0.005            # mock: điểm giữa trong log-scale [1e-4, 5e-2]
+
+# --- LoRA Rank ---
+# suggest_categorical("lora_r", [4, 8, 16, 32])
+lora_r: 8                      # mock: một trong {4, 8, 16, 32}
+
+# --- LoRA Dropout ---
+# suggest_float("lora_dropout", 0.0, 0.20)
+lora_dropout: 0.10             # mock: uniform [0.0, 0.20]
+
+# --- Head Warmup Epochs ---
+# suggest_int("head_warmup_epochs", 1, 3)
+head_warmup_epochs: 2          # mock: int trong [1, 3]
+
+# --- ArcFace Margin m2 ---
+# suggest_float("margin_m2", 0.20, 0.50)
+# margin_list trong train_config = [1.0, margin_m2, 0.0]
+margin_m2: 0.35                # mock: uniform [0.20, 0.50]

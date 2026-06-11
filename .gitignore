@@ -137,3 +137,24 @@ logs/
 **/test-dataset/
 **/logs/
 **/models/
+
+# =============================================
+# PBL5-finetune (finetune source code)
+# Track: scripts, configs, pipeline code, docs
+# Ignore: model weights, datasets, notebooks output
+# =============================================
+
+# Model weights & checkpoints (3GB+)
+PBL5-finetune/**/models/
+PBL5-finetune/**/*.onnx
+PBL5-finetune/**/*.pth
+PBL5-finetune/**/*.pt
+PBL5-finetune/**/*.safetensors
+PBL5-finetune/**/*.pkl
+PBL5-finetune/**/*.h5
+
+# Datasets - images & binary data (500MB+)
+PBL5-finetune/**/dataset/
+
+# Jupyter notebook checkpoints
+PBL5-finetune/**/.ipynb_checkpoints/

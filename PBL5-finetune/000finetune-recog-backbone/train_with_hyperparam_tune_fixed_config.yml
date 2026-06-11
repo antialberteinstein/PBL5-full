@@ -1,0 +1,37 @@
+# ============================================================
+# Fixed Config cho Hyperparameter Tuning (Optuna)
+# Các tham số KHÔNG được tune — giữ cố định trong mọi trial
+# ============================================================
+
+# --- Model & Dataset Paths ---
+model_path: "models/pretrained/r50-ms1mv3.pth"
+dataset_train_path: "dataset/train"
+save_dir: "models/finetuned_hpo"
+
+# --- Evaluation Datasets (ImageFolder, cosine-similarity nearest-neighbor) ---
+special_test_path: "dataset/test/special_test"    # hệ số 2 trong objective
+lfw_decrease_path: "dataset/test/lfw_decrease"    # hệ số 1 trong objective
+onnx_export_path: "models/finetuned_hpo/trial_model.onnx"
+
+# --- Fixed Architecture ---
+embedding_size: 512
+use_lora: true
+lora_target_modules: ".*conv.*|fc"
+
+# --- Fixed Training Settings ---
+batch_size: 64
+epochs_per_trial: 15       # Rút ngắn để HPO chạy nhanh hơn
+optimizer: "adamw"
+num_workers: 0
+fp16: true
+gradient_acc: 1
+sample_rate: 1.0
+interclass_filtering_threshold: 0
+verbose: 999               # Im lặng trong từng trial (chỉ in kết quả trial)
+using_wandb: false
+
+# --- Optuna Study Settings ---
+n_trials: 40
+study_name: "insightface_lora_hpo"
+best_config_path: "best_config.yml"
+direction: "maximize"      # maximize objective score
